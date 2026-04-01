@@ -4,7 +4,7 @@ var WebSocket = require("ws");
 var crypto = require("crypto");
 var fs = require("fs");
 var path = require("path");
-var vm = require("vm");
+var child_process = require("child_process");
 var Database = require("better-sqlite3");
 
 var app = express();
@@ -221,32 +221,28 @@ function runAutobot(name, gameState, overrideCode) {
   var code = overrideCode || getBot(name);
   if (!code) return null;
 
+  // Run bot code in a sandboxed subprocess — separate process with:
+  // - No access to host require/fs/net/process.env
+  // - 32MB memory limit (--max-old-space-size)
+  // - 3 second timeout (killed if exceeded)
+  // - Communication only via stdin/stdout JSON
   try {
-    var sandbox = {
-      console: { log: function() {}, error: function() {}, warn: function() {} },
-      Math: Math,
-      JSON: JSON,
-      Array: Array,
-      Object: Object,
-      Number: Number,
-      String: String,
-      parseInt: parseInt,
-      parseFloat: parseFloat,
-      isNaN: isNaN,
-      isFinite: isFinite,
-      __bids: null
-    };
+    var input = JSON.stringify({ code: code, state: gameState });
+    var result = child_process.execFileSync(
+      process.execPath,
+      ["--max-old-space-size=32", "--no-warnings", path.join(__dirname, "bot-runner.js")],
+      {
+        input: input,
+        timeout: 3000,
+        maxBuffer: 1024 * 64, // 64KB output max
+        stdio: ["pipe", "pipe", "pipe"],
+        env: {} // empty environment — no secrets leak
+      }
+    );
 
-    // The bot code should define a decideBids(state) function
-    // We wrap it to capture the return value
-    var wrappedCode = code + "\n;if (typeof decideBids === 'function') { __bids = decideBids(__state); }";
-    sandbox.__state = gameState;
+    var bids = [];
+    try { bids = JSON.parse(result.toString()); } catch (e) {}
 
-    var context = vm.createContext(sandbox);
-    var script = new vm.Script(wrappedCode, { timeout: 3000 });
-    script.runInContext(context, { timeout: 3000 });
-
-    var bids = sandbox.__bids;
     if (!Array.isArray(bids)) return [];
     // Validate bids
     var validated = [];
@@ -730,11 +726,16 @@ app.post("/api/bot/upload", function(req, res) {
   if (!/^[a-zA-Z0-9_-]+$/.test(name)) return res.status(400).json({ error: "Invalid bot name (alphanumeric, hyphens, underscores only)" });
   if (code.length > 50000) return res.status(400).json({ error: "Bot code too large (max 50KB)" });
 
-  // Validate the code can at least parse
+  // Validate the code can at least parse (syntax check via subprocess)
   try {
-    new vm.Script(code + "\n;if (typeof decideBids === 'function') { __bids = decideBids(__state); }", { timeout: 1000 });
+    child_process.execFileSync(
+      process.execPath,
+      ["-e", "new Function(" + JSON.stringify(code) + ")"],
+      { timeout: 2000, stdio: ["pipe", "pipe", "pipe"], env: {} }
+    );
   } catch (e) {
-    return res.status(400).json({ error: "Syntax error in bot code: " + e.message });
+    var stderr = e.stderr ? e.stderr.toString().split("\n")[0] : e.message;
+    return res.status(400).json({ error: "Syntax error in bot code: " + stderr });
   }
 
   saveBot(name, code);
