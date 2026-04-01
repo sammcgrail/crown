@@ -545,19 +545,12 @@ function updateUI(s) {
   renderPrevBids(s ? s.previous_bids : []);
   renderCrownInfo(s);
 
-  // Show/hide join bar
-  var joinBar = document.getElementById("joinBar");
-  if (myToken !== null) {
-    joinBar.style.display = "none";
-  } else if (s && s.status === "waiting" && s.players.length < 4) {
-    joinBar.style.display = "flex";
-  } else if (s && s.status === "waiting") {
-    joinBar.style.display = "none";
-  } else if (s && s.status === "finished") {
-    joinBar.style.display = "flex";
-    document.getElementById("joinMsg").textContent = "New game starting soon — join up!";
-  } else {
-    joinBar.style.display = "none";
+  // Join bar hidden — bots join via API, spectators watch only
+  document.getElementById("joinBar").style.display = "none";
+
+  // Hide timer bar when not in progress
+  if (!s || s.status !== "in_progress") {
+    document.getElementById("timerBarWrap").style.display = "none";
   }
 
   // Bid panel
