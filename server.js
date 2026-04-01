@@ -75,12 +75,11 @@ function saveGameToHistory() {
         grid: h.grid,
         bids: h.bids,
         scores: game.players.map(function(p, i) {
-          // Reconstruct scores from grid snapshot
           var tiles = 0;
           for (var y = 0; y < GRID_SIZE; y++)
             for (var x = 0; x < GRID_SIZE; x++)
               if (h.grid[y][x] === i) tiles++;
-          return { name: p.name, tiles: tiles, ap: 0 };
+          return { name: p.name, tiles: tiles, ap: h.ap_snapshot ? h.ap_snapshot[i] : 0 };
         }),
         crown_holder: null,
         crown_streak: 0
@@ -240,7 +239,8 @@ function resolveTurn() {
 
   game.history.push({
     turn: game.turn, bids: revealedBids, results: results,
-    grid: game.grid.map(function(row) { return row.slice(); })
+    grid: game.grid.map(function(row) { return row.slice(); }),
+    ap_snapshot: game.players.map(function(p) { return p.ap; })
   });
 
   for (var pi3 = 0; pi3 < game.players.length; pi3++) {
