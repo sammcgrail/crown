@@ -24,6 +24,7 @@ var STARTING_AP = 10;
 var DB_PATH = process.env.CROWN_DB || path.join(__dirname, "data", "crown.db");
 var MAX_HISTORY = 50;
 var BOTS_DIR = path.join(__dirname, "data", "bots");
+var BOTS_VERSIONS_DIR = path.join(__dirname, "data", "bots_versions");
 var AUTOBOT_DELAY_MS = 2000; // delay before running autobots each turn
 
 var PLAYER_COLORS = ["#e07070", "#70a0e0", "#70c070", "#d0a040"];
@@ -155,6 +156,7 @@ function saveGameToHistory() {
 // --- Autobot file management ---
 
 if (!fs.existsSync(BOTS_DIR)) fs.mkdirSync(BOTS_DIR, { recursive: true });
+if (!fs.existsSync(BOTS_VERSIONS_DIR)) fs.mkdirSync(BOTS_VERSIONS_DIR, { recursive: true });
 
 function listBots() {
   try {
@@ -163,7 +165,8 @@ function listBots() {
       var name = f.replace(/\.js$/, "");
       var code = fs.readFileSync(path.join(BOTS_DIR, f), "utf8");
       var stat = fs.statSync(path.join(BOTS_DIR, f));
-      return { name: name, code: code, updated: stat.mtime.toISOString(), size: code.length };
+      var versions = listBotVersions(name);
+      return { name: name, code: code, updated: stat.mtime.toISOString(), size: code.length, versions: versions.length };
     });
   } catch (e) { return []; }
 }
@@ -175,7 +178,36 @@ function getBot(name) {
   } catch (e) { return null; }
 }
 
+function listBotVersions(name) {
+  var botDir = path.join(BOTS_VERSIONS_DIR, name);
+  if (!fs.existsSync(botDir)) return [];
+  try {
+    var files = fs.readdirSync(botDir).filter(function(f) { return f.endsWith(".js"); });
+    return files.map(function(f) {
+      var ver = f.replace(/\.js$/, "");
+      var stat = fs.statSync(path.join(botDir, f));
+      var code = fs.readFileSync(path.join(botDir, f), "utf8");
+      return { version: ver, date: stat.mtime.toISOString(), size: code.length };
+    }).sort(function(a, b) { return b.version.localeCompare(a.version); });
+  } catch (e) { return []; }
+}
+
+function getBotVersion(name, version) {
+  var filePath = path.join(BOTS_VERSIONS_DIR, name, version + ".js");
+  try {
+    return fs.readFileSync(filePath, "utf8");
+  } catch (e) { return null; }
+}
+
 function saveBot(name, code) {
+  // Archive current version before overwriting
+  var currentCode = getBot(name);
+  if (currentCode) {
+    var botDir = path.join(BOTS_VERSIONS_DIR, name);
+    if (!fs.existsSync(botDir)) fs.mkdirSync(botDir, { recursive: true });
+    var ts = new Date().toISOString().replace(/[:.]/g, "-").replace("T", "_").slice(0, 19);
+    fs.writeFileSync(path.join(botDir, ts + ".js"), currentCode);
+  }
   var filePath = path.join(BOTS_DIR, name + ".js");
   fs.writeFileSync(filePath, code);
 }
@@ -185,8 +217,8 @@ function deleteBot(name) {
   try { fs.unlinkSync(filePath); return true; } catch (e) { return false; }
 }
 
-function runAutobot(name, gameState) {
-  var code = getBot(name);
+function runAutobot(name, gameState, overrideCode) {
+  var code = overrideCode || getBot(name);
   if (!code) return null;
 
   try {
@@ -664,7 +696,25 @@ app.get("/api/history/:id", function(req, res) {
 
 app.get("/api/bots", function(req, res) {
   var bots = listBots();
-  res.json(bots.map(function(b) { return { name: b.name, updated: b.updated, size: b.size }; }));
+  res.json(bots.map(function(b) { return { name: b.name, updated: b.updated, size: b.size, versions: b.versions }; }));
+});
+
+app.get("/api/bot/:name/versions", function(req, res) {
+  var versions = listBotVersions(req.params.name);
+  res.json({ name: req.params.name, versions: versions });
+});
+
+app.get("/api/bot/:name/version/:ver", function(req, res) {
+  var code = getBotVersion(req.params.name, req.params.ver);
+  if (!code) return res.status(404).json({ error: "Version not found" });
+  res.json({ name: req.params.name, version: req.params.ver, code: code });
+});
+
+app.post("/api/bot/:name/revert/:ver", function(req, res) {
+  var code = getBotVersion(req.params.name, req.params.ver);
+  if (!code) return res.status(404).json({ error: "Version not found" });
+  saveBot(req.params.name, code);
+  res.json({ ok: true, name: req.params.name, reverted_to: req.params.ver });
 });
 
 app.get("/api/bot/:name", function(req, res) {
@@ -720,6 +770,7 @@ app.delete("/api/bot/:name", function(req, res) {
 // Autobattle: run a full game using only autobot files, no WebSocket needed
 app.post("/api/autobattle", function(req, res) {
   var botNames = req.body.bots; // array of bot names, or omit to use all registered
+  var overrides = req.body.overrides || {}; // optional code overrides: { botname: "code..." }
   if (!botNames) {
     botNames = listBots().map(function(b) { return b.name; });
   }
@@ -728,7 +779,13 @@ app.post("/api/autobattle", function(req, res) {
 
   // Verify all bots exist
   for (var i = 0; i < botNames.length; i++) {
-    if (!getBot(botNames[i])) return res.status(400).json({ error: "Bot not found: " + botNames[i] });
+    if (!overrides[botNames[i]] && !getBot(botNames[i])) return res.status(400).json({ error: "Bot not found: " + botNames[i] });
+  }
+
+  // Shuffle bot order for random starting positions
+  for (var si = botNames.length - 1; si > 0; si--) {
+    var sj = Math.floor(Math.random() * (si + 1));
+    var tmp = botNames[si]; botNames[si] = botNames[sj]; botNames[sj] = tmp;
   }
 
   // Create an isolated game state for the autobattle
@@ -785,7 +842,8 @@ app.post("/api/autobattle", function(req, res) {
         previous_bids: abGame.previousBids || []
       };
 
-      var bids = runAutobot(realName, bState);
+      var overrideCode = overrides[realName] || null;
+      var bids = runAutobot(realName, bState, overrideCode);
       if (!bids) bids = [];
 
       // Process bids

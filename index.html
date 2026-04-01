@@ -731,7 +731,11 @@ h1 {
     <div id="botCodeViewer" style="display:none;background:#2a2622;border-radius:8px;padding:12px;margin-top:8px;border:1px solid #3a3530;">
       <h2 style="font-size:1em;margin-bottom:8px;border-bottom:1px solid #3a3530;padding-bottom:4px;display:flex;justify-content:space-between;align-items:center;">
         <span id="botCodeTitle">Bot Code</span>
-        <button onclick="closeBotViewer()" style="font-family:Georgia,serif;font-size:0.8em;padding:2px 8px;border-radius:4px;border:1px solid #3a3530;background:#1a1816;color:#e8e0d4;cursor:pointer;">Close</button>
+        <span style="display:flex;align-items:center;gap:6px;">
+          <select id="botVersionSelect" style="display:none;font-family:Georgia,serif;font-size:0.8em;padding:2px 6px;border-radius:4px;border:1px solid #3a3530;background:#1a1816;color:#e8e0d4;cursor:pointer;max-width:200px;"><option value="current">current</option></select>
+          <button id="botRevertBtn" style="display:none;font-family:Georgia,serif;font-size:0.8em;padding:2px 8px;border-radius:4px;border:1px solid #60a060;background:#1a3a1a;color:#60c060;cursor:pointer;">Test in Autobattle</button>
+          <button onclick="closeBotViewer()" style="font-family:Georgia,serif;font-size:0.8em;padding:2px 8px;border-radius:4px;border:1px solid #3a3530;background:#1a1816;color:#e8e0d4;cursor:pointer;">Close</button>
+        </span>
       </h2>
       <pre id="botCodeContent" style="background:#1a1816;padding:10px;border-radius:6px;overflow-x:auto;font-family:monospace;font-size:0.78em;color:#c0b8a8;max-height:400px;overflow-y:auto;white-space:pre-wrap;word-wrap:break-word;"></pre>
     </div>
@@ -1535,6 +1539,77 @@ function viewBot(name) {
     document.getElementById("botCodeViewer").style.display = "block";
     document.getElementById("botCodeTitle").textContent = data.name + ".js";
     document.getElementById("botCodeContent").textContent = data.code;
+    // Fetch versions
+    fetch(apiBase() + "/api/bot/" + encodeURIComponent(name) + "/versions")
+    .then(function(r2) { return r2.json(); })
+    .then(function(vdata) {
+      var sel = document.getElementById("botVersionSelect");
+      if (!sel) return;
+      sel.innerHTML = '<option value="current">current</option>';
+      sel.style.display = (vdata.versions && vdata.versions.length > 0) ? "inline-block" : "none";
+      if (vdata.versions) {
+        for (var i = 0; i < vdata.versions.length; i++) {
+          var v = vdata.versions[i];
+          sel.innerHTML += '<option value="' + esc(v.version) + '">' + esc(v.version) + ' (' + v.size + 'b)</option>';
+        }
+      }
+      sel.onchange = function() {
+        if (sel.value === "current") {
+          document.getElementById("botCodeContent").textContent = data.code;
+          var revertBtn = document.getElementById("botRevertBtn");
+          if (revertBtn) revertBtn.style.display = "none";
+        } else {
+          fetch(apiBase() + "/api/bot/" + encodeURIComponent(name) + "/version/" + encodeURIComponent(sel.value))
+          .then(function(r3) { return r3.json(); })
+          .then(function(vcode) {
+            document.getElementById("botCodeContent").textContent = vcode.code;
+            var revertBtn = document.getElementById("botRevertBtn");
+            if (revertBtn) {
+              revertBtn.style.display = "inline-block";
+              revertBtn.onclick = function() {
+                var versionCode = document.getElementById("botCodeContent").textContent;
+                if (!confirm("Run autobattle with " + name + " using version " + sel.value + "?")) return;
+                revertBtn.disabled = true;
+                revertBtn.textContent = "Running...";
+                var msgEl = document.getElementById("autobattleMsg");
+                msgEl.style.display = "block";
+                msgEl.textContent = "Running autobattle with " + name + " (version " + sel.value + ")...";
+                msgEl.style.color = "#d4a040";
+                var overrides = {};
+                overrides[name] = versionCode;
+                fetch(apiBase() + "/api/autobattle", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ overrides: overrides })
+                })
+                .then(function(r4) { return r4.json(); })
+                .then(function(data) {
+                  revertBtn.disabled = false;
+                  revertBtn.textContent = "Test in Autobattle";
+                  if (data.error) {
+                    msgEl.textContent = "Error: " + data.error;
+                    msgEl.style.color = "#e06060";
+                    return;
+                  }
+                  msgEl.textContent = data.winner + " wins! (" + data.reason + ", " + data.turns + " turns) [tested " + name + " v" + sel.value + "] — Click to replay";
+                  msgEl.style.color = "#60c060";
+                  msgEl.style.cursor = "pointer";
+                  msgEl.onclick = function() { loadReplay(data.game_id); };
+                  fetchPastGames();
+                  fetchLeaderboard();
+                })
+                .catch(function(err) {
+                  revertBtn.disabled = false;
+                  revertBtn.textContent = "Test in Autobattle";
+                  msgEl.textContent = "Error: " + err;
+                  msgEl.style.color = "#e06060";
+                });
+              };
+            }
+          });
+        }
+      };
+    });
   });
 }
 
