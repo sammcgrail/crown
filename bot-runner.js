@@ -1,5 +1,7 @@
 // Sandboxed bot runner — executed as a subprocess
-// Receives bot code + game state via stdin, returns bids via stdout
+// Two modes:
+//   Single: { code, state }           → returns bids JSON
+//   Batch:  { batch: [{code, state}] } → returns array of bids JSON
 // Dangerous globals are deleted before bot code runs.
 
 var chunks = [];
@@ -13,8 +15,6 @@ process.stdin.on("end", function() {
     return;
   }
 
-  var code = input.code;
-  var state = input.state;
   var _Function = Function;
   var _stdout = process.stdout;
   var _JSON = JSON;
@@ -36,19 +36,43 @@ process.stdin.on("end", function() {
   process._linkedBinding = undefined;
   process.moduleLoadList = undefined;
 
-  // Nuke globalThis paths to constructors that could re-import modules
   try { delete global.Buffer; } catch(e) {}
   try { delete global.URL; } catch(e) {}
   try { delete global.URLSearchParams; } catch(e) {}
   try { delete global.TextDecoder; } catch(e) {}
   try { delete global.TextEncoder; } catch(e) {}
 
-  try {
+  // Cache compiled bot functions to avoid recompiling every turn
+  var fnCache = {};
+  function getBotFn(code) {
+    if (fnCache[code]) return fnCache[code];
     var fn = new _Function("state", code + "\n;if (typeof decideBids === 'function') { return decideBids(state); } return [];");
-    var bids = fn(state);
-    if (!Array.isArray(bids)) bids = [];
+    fnCache[code] = fn;
+    return fn;
+  }
+
+  function runOne(code, state) {
+    try {
+      var fn = getBotFn(code);
+      var bids = fn(state);
+      if (!Array.isArray(bids)) return [];
+      return bids;
+    } catch (e) {
+      return [];
+    }
+  }
+
+  if (input.batch) {
+    // Batch mode — run many calls, return array of results
+    var results = [];
+    for (var i = 0; i < input.batch.length; i++) {
+      var item = input.batch[i];
+      results.push(runOne(item.code, item.state));
+    }
+    _stdout.write(_JSON.stringify(results));
+  } else {
+    // Single mode
+    var bids = runOne(input.code, input.state);
     _stdout.write(_JSON.stringify(bids));
-  } catch (e) {
-    _stdout.write("[]");
   }
 });
