@@ -243,12 +243,14 @@ h1 {
   .balance-card .bal-stats { font-size: 0.75em; }
   /* Fixed heights — panels never resize when content changes */
   .event-log { height: 180px; font-size: 0.78em; overflow-y: auto; }
-  .player-balance { height: 160px; overflow-y: auto; }
+  .player-balance { height: auto; overflow-y: auto; }
   .history-panel { height: 160px; overflow-y: auto; }
-  .panel { height: 140px; overflow-y: auto; }
-  .leaderboard { height: 120px; overflow-y: auto; }
+  .panel { height: auto; overflow-y: auto; }
+  .leaderboard { height: auto; overflow-y: auto; }
   .past-games { height: 180px; overflow-y: auto; }
   .col-left, .col-center, .col-right { min-height: 0; }
+  .col-left > *, .col-center > *, .col-right > * { margin-bottom: 12px; }
+  .panels > * { margin-bottom: 0; }
   .replay-section { margin-top: 12px; }
   .replay-controls { padding: 10px; }
   .replay-controls h2 { font-size: 0.9em; margin-bottom: 6px; }
