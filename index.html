@@ -86,6 +86,9 @@ body {
 @media (max-width: 900px) {
   .main-layout { grid-template-columns: 1fr; }
   .main-layout .col-left, .main-layout .col-right { position: static; }
+  .main-layout .col-left { order: 2; }
+  .main-layout .col-center { order: 1; }
+  .main-layout .col-right { order: 3; }
 }
 h1 {
   text-align: center;
@@ -238,7 +241,12 @@ h1 {
   .balance-card { padding: 6px; }
   .balance-card .bal-name { font-size: 0.85em; }
   .balance-card .bal-stats { font-size: 0.75em; }
-  .event-log { max-height: 300px; font-size: 0.78em; }
+  .event-log { max-height: 200px; font-size: 0.78em; overflow-y: auto; }
+  .player-balance { max-height: 180px; overflow-y: auto; }
+  .history-panel { max-height: 200px; overflow-y: auto; }
+  .panel { max-height: 200px; overflow-y: auto; }
+  .leaderboard { max-height: 150px; overflow-y: auto; }
+  .col-left, .col-center, .col-right { min-height: 0; }
   .replay-section { margin-top: 12px; }
   .replay-controls { padding: 10px; }
   .replay-controls h2 { font-size: 0.9em; margin-bottom: 6px; }
