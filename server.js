@@ -4,6 +4,7 @@ var WebSocket = require("ws");
 var crypto = require("crypto");
 var fs = require("fs");
 var path = require("path");
+var vm = require("vm");
 var Database = require("better-sqlite3");
 
 var app = express();
@@ -22,6 +23,8 @@ var MAX_BIDS_PER_TURN = 3;
 var STARTING_AP = 10;
 var DB_PATH = process.env.CROWN_DB || path.join(__dirname, "data", "crown.db");
 var MAX_HISTORY = 50;
+var BOTS_DIR = path.join(__dirname, "data", "bots");
+var AUTOBOT_DELAY_MS = 2000; // delay before running autobots each turn
 
 var PLAYER_COLORS = ["#e07070", "#70a0e0", "#70c070", "#d0a040"];
 var CORNER_STARTS = [
@@ -34,7 +37,7 @@ var CORNER_STARTS = [
 // Single persistent game
 var game = null;
 
-app.use(express.json());
+app.use(express.json({ limit: "100kb" }));
 app.use(express.static(__dirname));
 
 function uuid() { return crypto.randomUUID(); }
@@ -149,6 +152,195 @@ function saveGameToHistory() {
   return entry.id;
 }
 
+// --- Autobot file management ---
+
+if (!fs.existsSync(BOTS_DIR)) fs.mkdirSync(BOTS_DIR, { recursive: true });
+
+function listBots() {
+  try {
+    var files = fs.readdirSync(BOTS_DIR).filter(function(f) { return f.endsWith(".js"); });
+    return files.map(function(f) {
+      var name = f.replace(/\.js$/, "");
+      var code = fs.readFileSync(path.join(BOTS_DIR, f), "utf8");
+      var stat = fs.statSync(path.join(BOTS_DIR, f));
+      return { name: name, code: code, updated: stat.mtime.toISOString(), size: code.length };
+    });
+  } catch (e) { return []; }
+}
+
+function getBot(name) {
+  var filePath = path.join(BOTS_DIR, name + ".js");
+  try {
+    return fs.readFileSync(filePath, "utf8");
+  } catch (e) { return null; }
+}
+
+function saveBot(name, code) {
+  var filePath = path.join(BOTS_DIR, name + ".js");
+  fs.writeFileSync(filePath, code);
+}
+
+function deleteBot(name) {
+  var filePath = path.join(BOTS_DIR, name + ".js");
+  try { fs.unlinkSync(filePath); return true; } catch (e) { return false; }
+}
+
+function runAutobot(name, gameState) {
+  var code = getBot(name);
+  if (!code) return null;
+
+  try {
+    var sandbox = {
+      console: { log: function() {}, error: function() {}, warn: function() {} },
+      Math: Math,
+      JSON: JSON,
+      Array: Array,
+      Object: Object,
+      Number: Number,
+      String: String,
+      parseInt: parseInt,
+      parseFloat: parseFloat,
+      isNaN: isNaN,
+      isFinite: isFinite,
+      __bids: null
+    };
+
+    // The bot code should define a decideBids(state) function
+    // We wrap it to capture the return value
+    var wrappedCode = code + "\n;if (typeof decideBids === 'function') { __bids = decideBids(__state); }";
+    sandbox.__state = gameState;
+
+    var context = vm.createContext(sandbox);
+    var script = new vm.Script(wrappedCode, { timeout: 3000 });
+    script.runInContext(context, { timeout: 3000 });
+
+    var bids = sandbox.__bids;
+    if (!Array.isArray(bids)) return [];
+    // Validate bids
+    var validated = [];
+    for (var i = 0; i < Math.min(bids.length, MAX_BIDS_PER_TURN); i++) {
+      var b = bids[i];
+      if (b && typeof b.x === "number" && typeof b.y === "number" && typeof b.amount === "number" &&
+          b.x >= 0 && b.x < GRID_SIZE && b.y >= 0 && b.y < GRID_SIZE &&
+          b.amount > 0 && Number.isInteger(b.amount)) {
+        validated.push({ x: b.x, y: b.y, amount: b.amount });
+      }
+    }
+    return validated;
+  } catch (e) {
+    console.error("Autobot " + name + " execution error:", e.message);
+    return [];
+  }
+}
+
+function getAutobotState(playerIndex) {
+  if (!game) return null;
+  var players = game.players.map(function(p, i) {
+    return {
+      index: i, name: p.name, color: PLAYER_COLORS[i],
+      tiles: countTiles(game.grid, i), ap: p.ap
+    };
+  });
+  return {
+    grid: game.grid,
+    grid_size: GRID_SIZE,
+    players: players,
+    my_index: playerIndex,
+    crown: { x: CROWN_X, y: CROWN_Y },
+    crown_holder: game.crownHolder,
+    crown_streak: game.crownStreak,
+    turn: game.turn,
+    max_turns: MAX_TURNS,
+    previous_bids: game.previousBids || []
+  };
+}
+
+function runAutobotTurn() {
+  if (!game || game.status !== "in_progress") return;
+
+  for (var pi = 0; pi < game.players.length; pi++) {
+    var player = game.players[pi];
+    if (player.hasBid) continue;
+    if (!player.isAutobot) continue;
+
+    var botState = getAutobotState(pi);
+    var bids = runAutobot(player.name, botState);
+    if (!bids || bids.length === 0) {
+      // Autobot passes — submit empty bids
+      player.currentBids = [];
+      player.hasBid = true;
+      broadcast({ type: "player_bid_locked", player_index: pi, player_name: player.name });
+      continue;
+    }
+
+    // Process bids like the /api/bid endpoint
+    var totalCost = 0;
+    var processedBids = [];
+    var valid = true;
+    for (var b = 0; b < bids.length; b++) {
+      var bid = bids[b];
+      var adjacent = isAdjacent(game.grid, bid.x, bid.y, pi);
+      var effectiveCost = adjacent ? Math.ceil(bid.amount / 2) : bid.amount;
+      totalCost += effectiveCost;
+      processedBids.push({ x: bid.x, y: bid.y, amount: bid.amount, effectiveCost: effectiveCost, adjacent: adjacent });
+    }
+
+    if (totalCost > player.ap) {
+      // Too expensive — trim bids until they fit
+      processedBids = [];
+      totalCost = 0;
+      for (var b2 = 0; b2 < bids.length; b2++) {
+        var bid2 = bids[b2];
+        var adj2 = isAdjacent(game.grid, bid2.x, bid2.y, pi);
+        var eff2 = adj2 ? Math.ceil(bid2.amount / 2) : bid2.amount;
+        if (totalCost + eff2 <= player.ap) {
+          processedBids.push({ x: bid2.x, y: bid2.y, amount: bid2.amount, effectiveCost: eff2, adjacent: adj2 });
+          totalCost += eff2;
+        }
+      }
+    }
+
+    player.currentBids = processedBids;
+    player.hasBid = true;
+    broadcast({ type: "player_bid_locked", player_index: pi, player_name: player.name });
+  }
+
+  // Check if all players have bid after autobot runs
+  var allBid = true;
+  for (var pi2 = 0; pi2 < game.players.length; pi2++) {
+    if (!game.players[pi2].hasBid) { allBid = false; break; }
+  }
+  if (allBid) resolveTurn();
+}
+
+function autoJoinBots() {
+  if (!game || game.status !== "waiting") return;
+  var bots = listBots();
+  for (var i = 0; i < bots.length; i++) {
+    if (game.players.length >= MAX_PLAYERS) break;
+    var botName = bots[i].name;
+    // Check not already in game
+    var already = false;
+    for (var j = 0; j < game.players.length; j++) {
+      if (game.players[j].name === botName) { already = true; break; }
+    }
+    if (already) continue;
+
+    var token = uuid();
+    var playerIndex = game.players.length;
+    game.players.push({ name: botName, token: token, ap: STARTING_AP, currentBids: null, hasBid: false, isAutobot: true });
+    var starts = CORNER_STARTS[playerIndex];
+    for (var s = 0; s < starts.length; s++) game.grid[starts[s].y][starts[s].x] = playerIndex;
+    broadcast({ type: "player_joined", player_index: playerIndex, player_name: botName, player_count: game.players.length });
+  }
+
+  if (game.players.length === MAX_PLAYERS && game.status === "waiting") {
+    game.status = "in_progress";
+    broadcast({ type: "game_started", state: getPublicState() });
+    startTurnTimer();
+  }
+}
+
 function createGrid() {
   var grid = [];
   for (var y = 0; y < GRID_SIZE; y++) {
@@ -179,6 +371,7 @@ function isAdjacent(grid, x, y, playerIndex) {
 
 function newGame() {
   if (game && game.turnTimer) clearTimeout(game.turnTimer);
+  if (game && game.autobotTimer) clearTimeout(game.autobotTimer);
   game = {
     status: "waiting",
     turn: 1,
@@ -190,9 +383,12 @@ function newGame() {
     history: [],
     winner: null,
     winReason: null,
-    turnTimer: null
+    turnTimer: null,
+    autobotTimer: null
   };
   broadcast({ type: "new_game" });
+  // Auto-join registered autobots after a short delay
+  setTimeout(function() { autoJoinBots(); }, 1000);
   return game;
 }
 
@@ -201,7 +397,8 @@ function getPublicState() {
   var players = game.players.map(function(p, i) {
     return {
       index: i, name: p.name, color: PLAYER_COLORS[i],
-      tiles: countTiles(game.grid, i), ap: p.ap, connected: true
+      tiles: countTiles(game.grid, i), ap: p.ap, connected: true,
+      is_autobot: !!p.isAutobot
     };
   });
   return {
@@ -224,6 +421,9 @@ function broadcast(message) {
 function startTurnTimer() {
   if (game.turnTimer) clearTimeout(game.turnTimer);
   game.turnTimer = setTimeout(function() { resolveTurn(); }, BID_TIMEOUT_MS);
+  // Schedule autobot execution after a short delay
+  if (game.autobotTimer) clearTimeout(game.autobotTimer);
+  game.autobotTimer = setTimeout(function() { runAutobotTurn(); }, AUTOBOT_DELAY_MS);
 }
 
 function resolveTurn() {
@@ -336,6 +536,7 @@ function resolveTurn() {
 
 function finishGame() {
   if (game.turnTimer) { clearTimeout(game.turnTimer); game.turnTimer = null; }
+  if (game.autobotTimer) { clearTimeout(game.autobotTimer); game.autobotTimer = null; }
 
   var finalScores = game.players.map(function(p, i) { return { name: p.name, tiles: countTiles(game.grid, i) }; });
   broadcast({
@@ -372,7 +573,8 @@ app.post("/api/join", function(req, res) {
 
   var token = uuid();
   var playerIndex = game.players.length;
-  game.players.push({ name: playerName, token: token, ap: STARTING_AP, currentBids: null, hasBid: false });
+  var hasAutobot = getBot(playerName) !== null;
+  game.players.push({ name: playerName, token: token, ap: STARTING_AP, currentBids: null, hasBid: false, isAutobot: hasAutobot });
 
   var starts = CORNER_STARTS[playerIndex];
   for (var i = 0; i < starts.length; i++) game.grid[starts[i].y][starts[i].x] = playerIndex;
@@ -456,6 +658,304 @@ app.get("/api/history/:id", function(req, res) {
   var row = db.prepare("SELECT data FROM games WHERE id = ?").get(req.params.id);
   if (!row) return res.status(404).json({ error: "Game not found" });
   res.json(JSON.parse(row.data));
+});
+
+// --- Autobot API ---
+
+app.get("/api/bots", function(req, res) {
+  var bots = listBots();
+  res.json(bots.map(function(b) { return { name: b.name, updated: b.updated, size: b.size }; }));
+});
+
+app.get("/api/bot/:name", function(req, res) {
+  var code = getBot(req.params.name);
+  if (!code) return res.status(404).json({ error: "Bot not found" });
+  res.json({ name: req.params.name, code: code });
+});
+
+app.post("/api/bot/upload", function(req, res) {
+  var name = req.body.name;
+  var code = req.body.code;
+  if (!name || !code) return res.status(400).json({ error: "name and code are required" });
+  if (!/^[a-zA-Z0-9_-]+$/.test(name)) return res.status(400).json({ error: "Invalid bot name (alphanumeric, hyphens, underscores only)" });
+  if (code.length > 50000) return res.status(400).json({ error: "Bot code too large (max 50KB)" });
+
+  // Validate the code can at least parse
+  try {
+    new vm.Script(code + "\n;if (typeof decideBids === 'function') { __bids = decideBids(__state); }", { timeout: 1000 });
+  } catch (e) {
+    return res.status(400).json({ error: "Syntax error in bot code: " + e.message });
+  }
+
+  saveBot(name, code);
+
+  // If this bot is in the current game, mark it as autobot
+  if (game) {
+    for (var i = 0; i < game.players.length; i++) {
+      if (game.players[i].name === name) {
+        game.players[i].isAutobot = true;
+      }
+    }
+  }
+
+  res.json({ ok: true, name: name, size: code.length });
+});
+
+app.delete("/api/bot/:name", function(req, res) {
+  if (deleteBot(req.params.name)) {
+    // Unmark from current game
+    if (game) {
+      for (var i = 0; i < game.players.length; i++) {
+        if (game.players[i].name === req.params.name) {
+          game.players[i].isAutobot = false;
+        }
+      }
+    }
+    res.json({ ok: true });
+  } else {
+    res.status(404).json({ error: "Bot not found" });
+  }
+});
+
+// Autobattle: run a full game using only autobot files, no WebSocket needed
+app.post("/api/autobattle", function(req, res) {
+  var botNames = req.body.bots; // array of bot names, or omit to use all registered
+  if (!botNames) {
+    botNames = listBots().map(function(b) { return b.name; });
+  }
+  if (botNames.length < 2) return res.status(400).json({ error: "Need at least 2 bots" });
+  if (botNames.length > MAX_PLAYERS) botNames = botNames.slice(0, MAX_PLAYERS);
+
+  // Verify all bots exist
+  for (var i = 0; i < botNames.length; i++) {
+    if (!getBot(botNames[i])) return res.status(400).json({ error: "Bot not found: " + botNames[i] });
+  }
+
+  // Create an isolated game state for the autobattle
+  var abGame = {
+    status: "in_progress",
+    turn: 1,
+    grid: createGrid(),
+    players: [],
+    crownHolder: null,
+    crownStreak: 0,
+    previousBids: [],
+    history: [],
+    winner: null,
+    winReason: null
+  };
+
+  // Add players
+  for (var pi = 0; pi < botNames.length; pi++) {
+    abGame.players.push({ name: botNames[pi], token: uuid(), ap: STARTING_AP, currentBids: null, hasBid: false, isAutobot: true });
+    var starts = CORNER_STARTS[pi];
+    for (var s = 0; s < starts.length; s++) abGame.grid[starts[s].y][starts[s].x] = pi;
+  }
+
+  // Pad with remaining corner starts if < 4 players (2 or 3 player game)
+  // Actually, the game requires 4 players. Pad with copies if needed.
+  while (abGame.players.length < MAX_PLAYERS) {
+    var padIdx = abGame.players.length % botNames.length;
+    var padName = botNames[padIdx] + "_" + abGame.players.length;
+    abGame.players.push({ name: padName, token: uuid(), ap: STARTING_AP, currentBids: null, hasBid: false, isAutobot: true });
+    var starts2 = CORNER_STARTS[abGame.players.length - 1];
+    for (var s2 = 0; s2 < starts2.length; s2++) abGame.grid[starts2[s2].y][starts2[s2].x] = abGame.players.length - 1;
+  }
+
+  // Run the game turn by turn
+  for (var turn = 1; turn <= MAX_TURNS; turn++) {
+    abGame.turn = turn;
+
+    // Get bids from each bot
+    for (var bpi = 0; bpi < abGame.players.length; bpi++) {
+      var bp = abGame.players[bpi];
+      var realName = botNames[bpi % botNames.length]; // for padded players, use original bot
+      var bState = {
+        grid: abGame.grid,
+        grid_size: GRID_SIZE,
+        players: abGame.players.map(function(p, i) {
+          return { index: i, name: p.name, color: PLAYER_COLORS[i], tiles: countTiles(abGame.grid, i), ap: p.ap };
+        }),
+        my_index: bpi,
+        crown: { x: CROWN_X, y: CROWN_Y },
+        crown_holder: abGame.crownHolder,
+        crown_streak: abGame.crownStreak,
+        turn: turn,
+        max_turns: MAX_TURNS,
+        previous_bids: abGame.previousBids || []
+      };
+
+      var bids = runAutobot(realName, bState);
+      if (!bids) bids = [];
+
+      // Process bids
+      var totalCost = 0;
+      var processedBids = [];
+      for (var bi = 0; bi < bids.length; bi++) {
+        var bid = bids[bi];
+        if (bid.x < 0 || bid.x >= GRID_SIZE || bid.y < 0 || bid.y >= GRID_SIZE) continue;
+        var adjacent = isAdjacent(abGame.grid, bid.x, bid.y, bpi);
+        var effectiveCost = adjacent ? Math.ceil(bid.amount / 2) : bid.amount;
+        if (totalCost + effectiveCost <= bp.ap) {
+          processedBids.push({ x: bid.x, y: bid.y, amount: bid.amount, effectiveCost: effectiveCost, adjacent: adjacent });
+          totalCost += effectiveCost;
+        }
+      }
+
+      bp.currentBids = processedBids;
+      bp.hasBid = true;
+    }
+
+    // Resolve turn (inline logic mirroring resolveTurn)
+    var turnBids = {};
+    for (var rpi = 0; rpi < abGame.players.length; rpi++) {
+      var rPlayerBids = abGame.players[rpi].currentBids || [];
+      for (var rbi = 0; rbi < rPlayerBids.length; rbi++) {
+        var rb = rPlayerBids[rbi];
+        var rkey = rb.x + "," + rb.y;
+        if (!turnBids[rkey]) turnBids[rkey] = [];
+        turnBids[rkey].push({ playerIndex: rpi, amount: rb.amount, effectiveCost: rb.effectiveCost });
+      }
+    }
+
+    var apSpent = new Array(abGame.players.length).fill(0);
+    var keys = Object.keys(turnBids);
+    for (var ki = 0; ki < keys.length; ki++) {
+      var parts = keys[ki].split(",");
+      var tx = parseInt(parts[0]), ty = parseInt(parts[1]);
+      if (isNaN(tx) || isNaN(ty) || !abGame.grid[ty]) continue;
+      var cellBids = turnBids[keys[ki]];
+      cellBids.sort(function(a, b) { return b.amount - a.amount; });
+
+      var winner = null;
+      if (cellBids.length === 1) winner = cellBids[0].playerIndex;
+      else if (cellBids[0].amount > cellBids[1].amount) winner = cellBids[0].playerIndex;
+
+      for (var cb = 0; cb < cellBids.length; cb++)
+        apSpent[cellBids[cb].playerIndex] += cellBids[cb].effectiveCost;
+
+      if (winner !== null) abGame.grid[ty][tx] = winner;
+    }
+
+    // Deduct AP
+    for (var dp = 0; dp < abGame.players.length; dp++) {
+      abGame.players[dp].ap -= apSpent[dp];
+      if (abGame.players[dp].ap < 0) abGame.players[dp].ap = 0;
+    }
+
+    // Build revealed bids
+    var revealedBids = [];
+    for (var rbp = 0; rbp < abGame.players.length; rbp++) {
+      var rpb = abGame.players[rbp].currentBids || [];
+      for (var rbj = 0; rbj < rpb.length; rbj++) {
+        revealedBids.push({
+          player: rbp, player_name: abGame.players[rbp].name,
+          x: rpb[rbj].x, y: rpb[rbj].y, amount: rpb[rbj].amount, effectiveCost: rpb[rbj].effectiveCost
+        });
+      }
+    }
+    abGame.previousBids = revealedBids;
+
+    abGame.history.push({
+      turn: turn, bids: revealedBids,
+      grid: abGame.grid.map(function(row) { return row.slice(); }),
+      ap_snapshot: abGame.players.map(function(p) { return p.ap; })
+    });
+
+    // Reset bids
+    for (var rp2 = 0; rp2 < abGame.players.length; rp2++) {
+      abGame.players[rp2].currentBids = null;
+      abGame.players[rp2].hasBid = false;
+    }
+
+    // Crown logic
+    var crownOwner = abGame.grid[CROWN_Y][CROWN_X];
+    if (crownOwner !== null && crownOwner === abGame.crownHolder) abGame.crownStreak++;
+    else if (crownOwner !== null) { abGame.crownHolder = crownOwner; abGame.crownStreak = 1; }
+    else { abGame.crownHolder = null; abGame.crownStreak = 0; }
+
+    // Check crown win
+    if (abGame.crownStreak >= CROWN_WIN_STREAK && abGame.crownHolder !== null) {
+      abGame.winner = abGame.crownHolder;
+      abGame.winReason = "crown";
+      break;
+    }
+
+    // AP income
+    if (turn < MAX_TURNS) {
+      for (var ip = 0; ip < abGame.players.length; ip++) {
+        abGame.players[ip].ap += countTiles(abGame.grid, ip);
+      }
+    }
+  }
+
+  // Territory win if no crown win
+  if (abGame.winner === null) {
+    var maxTiles = -1, maxPlayer = null;
+    for (var fp = 0; fp < abGame.players.length; fp++) {
+      var tc = countTiles(abGame.grid, fp);
+      if (tc > maxTiles) { maxTiles = tc; maxPlayer = fp; }
+    }
+    abGame.winner = maxPlayer;
+    abGame.winReason = "territory";
+  }
+
+  // Save to history
+  var entry = {
+    id: uuid(),
+    date: new Date().toISOString(),
+    players: abGame.players.map(function(p, i) {
+      return { name: p.name, color: PLAYER_COLORS[i], tiles: countTiles(abGame.grid, i) };
+    }),
+    winner: abGame.winner,
+    winner_name: abGame.players[abGame.winner].name,
+    reason: abGame.winReason,
+    is_autobattle: true,
+    turns: abGame.history.map(function(h) {
+      return {
+        turn: h.turn, grid: h.grid, bids: h.bids,
+        scores: abGame.players.map(function(p, i) {
+          var tiles = 0;
+          for (var y = 0; y < GRID_SIZE; y++)
+            for (var x = 0; x < GRID_SIZE; x++)
+              if (h.grid[y][x] === i) tiles++;
+          return { name: p.name, tiles: tiles, ap: h.ap_snapshot ? h.ap_snapshot[i] : 0 };
+        }),
+        crown_holder: null, crown_streak: 0
+      };
+    })
+  };
+
+  // Reconstruct crown state per turn
+  var cHolder = null, cStreak = 0;
+  for (var ct = 0; ct < entry.turns.length; ct++) {
+    var cTurn = entry.turns[ct];
+    var cOwner = cTurn.grid[CROWN_Y][CROWN_X];
+    if (cOwner !== null && cOwner === cHolder) cStreak++;
+    else if (cOwner !== null) { cHolder = cOwner; cStreak = 1; }
+    else { cHolder = null; cStreak = 0; }
+    cTurn.crown_holder = cHolder;
+    cTurn.crown_streak = cStreak;
+  }
+
+  try {
+    db.prepare("INSERT INTO games (id, date, data) VALUES (?, ?, ?)").run(entry.id, entry.date, JSON.stringify(entry));
+    db.prepare("DELETE FROM games WHERE id NOT IN (SELECT id FROM games ORDER BY date DESC LIMIT ?)").run(MAX_HISTORY);
+  } catch (e) { console.error("Failed to save autobattle:", e.message); }
+
+  // Update leaderboard
+  updateLeaderboard(entry.winner_name);
+
+  // Broadcast to spectators that a new game was recorded
+  broadcast({ type: "autobattle_complete", game_id: entry.id, winner: entry.winner_name, reason: entry.reason });
+
+  res.json({
+    game_id: entry.id,
+    winner: entry.winner_name,
+    reason: entry.reason,
+    turns: entry.turns.length,
+    players: entry.players
+  });
 });
 
 // Legacy API routes (redirect old game-id routes to new ones)

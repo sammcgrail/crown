@@ -708,9 +708,33 @@ h1 {
     <div id="historyList"></div>
   </div>
 
-  <div class="replay-section">
+  <!-- Bots Panel -->
+  <div class="bots-section" style="margin-bottom:16px;">
     <div class="past-games">
-      <h2>Past Games</h2>
+      <h2 style="display:flex;justify-content:space-between;align-items:center;">
+        Autobots
+        <span style="display:flex;gap:6px;">
+          <button onclick="runAutobattle()" style="font-family:Georgia,serif;font-size:0.8em;padding:4px 12px;border-radius:6px;border:1px solid #3a3530;background:#407040;color:#fff;cursor:pointer;" title="Run a full game with all registered autobots">Run Autobattle</button>
+        </span>
+      </h2>
+      <div id="botsList"><span class="no-games">Loading bots...</span></div>
+      <div id="autobattleMsg" style="font-size:0.82em;color:#60c060;margin-top:6px;display:none;"></div>
+    </div>
+    <div id="botCodeViewer" style="display:none;background:#2a2622;border-radius:8px;padding:12px;margin-top:8px;border:1px solid #3a3530;">
+      <h2 style="font-size:1em;margin-bottom:8px;border-bottom:1px solid #3a3530;padding-bottom:4px;display:flex;justify-content:space-between;align-items:center;">
+        <span id="botCodeTitle">Bot Code</span>
+        <button onclick="closeBotViewer()" style="font-family:Georgia,serif;font-size:0.8em;padding:2px 8px;border-radius:4px;border:1px solid #3a3530;background:#1a1816;color:#e8e0d4;cursor:pointer;">Close</button>
+      </h2>
+      <pre id="botCodeContent" style="background:#1a1816;padding:10px;border-radius:6px;overflow-x:auto;font-family:monospace;font-size:0.78em;color:#c0b8a8;max-height:400px;overflow-y:auto;white-space:pre-wrap;word-wrap:break-word;"></pre>
+    </div>
+  </div>
+
+  <div class="replay-section">
+    <div class="past-games" style="display:flex;flex-direction:column;">
+      <h2 style="display:flex;justify-content:space-between;align-items:center;">
+        Past Games
+        <span style="font-size:0.7em;color:#6a6050;font-weight:normal;" id="replayBotsLabel"></span>
+      </h2>
       <div id="pastGamesList"><span class="no-games">No completed games yet</span></div>
     </div>
     <div class="replay-controls" id="replayControls">
@@ -1207,6 +1231,10 @@ function connectWS() {
           addLogEntry(esc(msg.final_scores[fi].name) + ": " + msg.final_scores[fi].tiles + " tiles", "action");
         }
       }
+    } else if (msg.type === "autobattle_complete") {
+      fetchPastGames();
+      fetchLeaderboard();
+      addLogEntry("Autobattle: " + esc(msg.winner) + " wins (" + msg.reason + ")", "turn");
     } else if (msg.type === "new_game") {
       // Reset player state for new game
       previousGrid = null;
@@ -1464,15 +1492,89 @@ function exitReplay() {
   fetchState(); // restore live view
 }
 
+// --- Bot Management ---
+
+function fetchBots() {
+  fetch(apiBase() + "/api/bots")
+  .then(function(r) { return r.json(); })
+  .then(function(bots) {
+    var el = document.getElementById("botsList");
+    if (!bots || bots.length === 0) {
+      el.innerHTML = '<span class="no-games">No autobots registered</span>';
+      return;
+    }
+    var html = "";
+    for (var i = 0; i < bots.length; i++) {
+      var b = bots[i];
+      var updated = b.updated ? new Date(b.updated).toLocaleString() : "";
+      html += '<div class="past-game-row" style="cursor:pointer;" onclick="viewBot(\'' + esc(b.name) + '\')">';
+      html += '<span style="font-weight:bold;color:#d4a040;">' + esc(b.name) + '</span>';
+      html += '<span class="past-game-meta">' + (b.size || 0) + ' bytes &middot; ' + updated + '</span>';
+      html += '</div>';
+    }
+    el.innerHTML = html;
+  })
+  .catch(function() {
+    document.getElementById("botsList").innerHTML = '<span class="no-games">Failed to load bots</span>';
+  });
+}
+
+function viewBot(name) {
+  fetch(apiBase() + "/api/bot/" + encodeURIComponent(name))
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.error) return;
+    document.getElementById("botCodeViewer").style.display = "block";
+    document.getElementById("botCodeTitle").textContent = data.name + ".js";
+    document.getElementById("botCodeContent").textContent = data.code;
+  });
+}
+
+function closeBotViewer() {
+  document.getElementById("botCodeViewer").style.display = "none";
+}
+
+function runAutobattle() {
+  var msgEl = document.getElementById("autobattleMsg");
+  msgEl.style.display = "block";
+  msgEl.textContent = "Running autobattle...";
+  msgEl.style.color = "#d4a040";
+
+  fetch(apiBase() + "/api/autobattle", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({})
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.error) {
+      msgEl.textContent = "Error: " + data.error;
+      msgEl.style.color = "#e06060";
+      return;
+    }
+    msgEl.textContent = data.winner + " wins! (" + data.reason + ", " + data.turns + " turns) — Click to replay";
+    msgEl.style.color = "#60c060";
+    msgEl.style.cursor = "pointer";
+    msgEl.onclick = function() { loadReplay(data.game_id); };
+    fetchPastGames();
+    fetchLeaderboard();
+  })
+  .catch(function(err) {
+    msgEl.textContent = "Error: " + err;
+    msgEl.style.color = "#e06060";
+  });
+}
+
 initGrid();
 connectWS();
 fetchLeaderboard();
 fetchPastGames();
+fetchBots();
 </script>
 <script>
 document.addEventListener('contextmenu', function(e) { e.preventDefault(); });
 document.addEventListener('selectstart', function(e) { e.preventDefault(); });
 </script>
-<div style="position:fixed;bottom:4px;right:8px;font-size:0.65em;color:#5a5040;opacity:0.6;font-family:monospace;">v1.2</div>
+<div style="position:fixed;bottom:4px;right:8px;font-size:0.65em;color:#5a5040;opacity:0.6;font-family:monospace;">v2.0</div>
 </body>
 </html>
