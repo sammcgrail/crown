@@ -2,7 +2,7 @@
 // Strategy: "Opportunist" — expand efficiently early, contest crown mid-game,
 // block crown holders in emergencies, read opponent bid patterns to counter.
 
-var GAME_URL = process.env.CROWN_URL || "https://sebland.com/crown";
+var GAME_URL = process.env.CROWN_URL || "https://crown.sebland.com";
 var BOT_NAME = "BMO";
 var WS_URL = GAME_URL.replace("https://", "wss://").replace("http://", "ws://") + "/ws";
 

@@ -20,7 +20,6 @@ var CROWN_WIN_STREAK = 3;
 var BID_TIMEOUT_MS = 10000;
 var MAX_BIDS_PER_TURN = 3;
 var STARTING_AP = 10;
-var LEADERBOARD_FILE = path.join(__dirname, "leaderboard.json");
 var DB_PATH = process.env.CROWN_DB || path.join(__dirname, "data", "crown.db");
 var MAX_HISTORY = 50;
 
@@ -41,12 +40,15 @@ app.use(express.static(__dirname));
 function uuid() { return crypto.randomUUID(); }
 
 function loadLeaderboard() {
-  try { return JSON.parse(fs.readFileSync(LEADERBOARD_FILE, "utf8")); }
-  catch (e) { return []; }
+  try {
+    return db.prepare("SELECT name, wins, last_win FROM leaderboard ORDER BY wins DESC").all();
+  } catch (e) { return []; }
 }
 
-function saveLeaderboard(lb) {
-  fs.writeFileSync(LEADERBOARD_FILE, JSON.stringify(lb, null, 2));
+function updateLeaderboard(winnerName) {
+  db.prepare(
+    "INSERT INTO leaderboard (name, wins, last_win) VALUES (?, 1, ?) ON CONFLICT(name) DO UPDATE SET wins = wins + 1, last_win = ?"
+  ).run(winnerName, new Date().toISOString(), new Date().toISOString());
 }
 
 // SQLite database for persistent history
@@ -61,8 +63,30 @@ function initDB() {
     date TEXT NOT NULL,
     data TEXT NOT NULL
   )`);
+  db.exec(`CREATE TABLE IF NOT EXISTS leaderboard (
+    name TEXT PRIMARY KEY,
+    wins INTEGER NOT NULL DEFAULT 0,
+    last_win TEXT
+  )`);
 }
 initDB();
+
+// One-time migration from leaderboard.json to SQLite
+(function migrateLeaderboard() {
+  var jsonPath = path.join(__dirname, "leaderboard.json");
+  try {
+    if (!fs.existsSync(jsonPath)) return;
+    var existing = db.prepare("SELECT COUNT(*) as c FROM leaderboard").get();
+    if (existing.c > 0) return; // already migrated
+    var data = JSON.parse(fs.readFileSync(jsonPath, "utf8"));
+    var insert = db.prepare("INSERT OR IGNORE INTO leaderboard (name, wins, last_win) VALUES (?, ?, ?)");
+    for (var i = 0; i < data.length; i++) {
+      insert.run(data[i].name, data[i].wins, data[i].last_win || null);
+    }
+    fs.renameSync(jsonPath, jsonPath + ".migrated");
+    console.log("Migrated " + data.length + " leaderboard entries from JSON to SQLite");
+  } catch (e) { console.error("Leaderboard migration error:", e.message); }
+})();
 
 function loadHistory() {
   try {
@@ -320,15 +344,8 @@ function finishGame() {
     reason: game.winReason, final_scores: finalScores
   });
 
-  var lb = loadLeaderboard();
   var winnerName = game.players[game.winner].name;
-  var found = false;
-  for (var i = 0; i < lb.length; i++) {
-    if (lb[i].name === winnerName) { lb[i].wins++; lb[i].last_win = new Date().toISOString(); found = true; break; }
-  }
-  if (!found) lb.push({ name: winnerName, wins: 1, last_win: new Date().toISOString() });
-  lb.sort(function(a, b) { return b.wins - a.wins; });
-  saveLeaderboard(lb);
+  updateLeaderboard(winnerName);
 
   // Save game history for replay
   saveGameToHistory();

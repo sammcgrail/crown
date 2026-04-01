@@ -4,6 +4,12 @@ services:
     ports:
       - "20005:20005"
     volumes:
-      - ./leaderboard.json:/app/leaderboard.json
       - ./data:/app/data
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:20005/api/state"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    mem_limit: 128m
