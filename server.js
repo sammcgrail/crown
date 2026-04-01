@@ -20,6 +20,8 @@ var BID_TIMEOUT_MS = 10000;
 var MAX_BIDS_PER_TURN = 3;
 var STARTING_AP = 10;
 var LEADERBOARD_FILE = path.join(__dirname, "leaderboard.json");
+var HISTORY_FILE = path.join(__dirname, "game-history.json");
+var MAX_HISTORY = 50;
 
 var PLAYER_COLORS = ["#e07070", "#70a0e0", "#70c070", "#d0a040"];
 var CORNER_STARTS = [
@@ -44,6 +46,65 @@ function loadLeaderboard() {
 
 function saveLeaderboard(lb) {
   fs.writeFileSync(LEADERBOARD_FILE, JSON.stringify(lb, null, 2));
+}
+
+function loadHistory() {
+  try { return JSON.parse(fs.readFileSync(HISTORY_FILE, "utf8")); }
+  catch (e) { return []; }
+}
+
+function saveHistory(history) {
+  fs.writeFileSync(HISTORY_FILE, JSON.stringify(history));
+}
+
+function saveGameToHistory() {
+  if (!game || !game.winner === null) return;
+
+  var entry = {
+    id: uuid(),
+    date: new Date().toISOString(),
+    players: game.players.map(function(p, i) {
+      return { name: p.name, color: PLAYER_COLORS[i], tiles: countTiles(game.grid, i) };
+    }),
+    winner: game.winner,
+    winner_name: game.players[game.winner].name,
+    reason: game.winReason,
+    turns: game.history.map(function(h) {
+      return {
+        turn: h.turn,
+        grid: h.grid,
+        bids: h.bids,
+        scores: game.players.map(function(p, i) {
+          // Reconstruct scores from grid snapshot
+          var tiles = 0;
+          for (var y = 0; y < GRID_SIZE; y++)
+            for (var x = 0; x < GRID_SIZE; x++)
+              if (h.grid[y][x] === i) tiles++;
+          return { name: p.name, tiles: tiles, ap: 0 };
+        }),
+        crown_holder: null,
+        crown_streak: 0
+      };
+    })
+  };
+
+  // Reconstruct crown state per turn
+  var crownHolder = null, crownStreak = 0;
+  for (var t = 0; t < entry.turns.length; t++) {
+    var turn = entry.turns[t];
+    var crownOwner = turn.grid[CROWN_Y][CROWN_X];
+    if (crownOwner !== null && crownOwner === crownHolder) crownStreak++;
+    else if (crownOwner !== null) { crownHolder = crownOwner; crownStreak = 1; }
+    else { crownHolder = null; crownStreak = 0; }
+    turn.crown_holder = crownHolder;
+    turn.crown_streak = crownStreak;
+  }
+
+  var history = loadHistory();
+  history.unshift(entry);
+  if (history.length > MAX_HISTORY) history = history.slice(0, MAX_HISTORY);
+  saveHistory(history);
+  return entry.id;
 }
 
 function createGrid() {
@@ -249,6 +310,9 @@ function finishGame() {
   lb.sort(function(a, b) { return b.wins - a.wins; });
   saveLeaderboard(lb);
 
+  // Save game history for replay
+  saveGameToHistory();
+
   // Auto-start new game after 10 seconds
   setTimeout(function() { newGame(); }, 10000);
 }
@@ -333,6 +397,33 @@ app.post("/api/bid", function(req, res) {
 });
 
 app.get("/api/leaderboard", function(req, res) { res.json(loadLeaderboard()); });
+
+app.get("/api/history", function(req, res) {
+  var history = loadHistory();
+  // Return summary list without full turn data
+  var summary = history.map(function(g) {
+    return {
+      id: g.id,
+      date: g.date,
+      players: g.players,
+      winner: g.winner,
+      winner_name: g.winner_name,
+      reason: g.reason,
+      turns: g.turns ? g.turns.length : 0
+    };
+  });
+  res.json(summary);
+});
+
+app.get("/api/history/:id", function(req, res) {
+  var history = loadHistory();
+  var game_entry = null;
+  for (var i = 0; i < history.length; i++) {
+    if (history[i].id === req.params.id) { game_entry = history[i]; break; }
+  }
+  if (!game_entry) return res.status(404).json({ error: "Game not found" });
+  res.json(game_entry);
+});
 
 // Legacy API routes (redirect old game-id routes to new ones)
 app.post("/api/game/new", function(req, res) {
