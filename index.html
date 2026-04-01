@@ -2,17 +2,24 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <base href="/crown/">
 <title>Crown</title>
 <style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
+* {
+  margin: 0; padding: 0; box-sizing: border-box;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
 body {
   font-family: 'Georgia', serif;
   background: #f5f0e8;
   color: #3a3530;
   min-height: 100vh;
   touch-action: manipulation;
+  -webkit-touch-callout: none;
 }
 .container {
   max-width: 800px;
@@ -668,6 +675,10 @@ function checkUrlParams() {
 
 initGrid();
 checkUrlParams();
+</script>
+<script>
+document.addEventListener('contextmenu', e => e.preventDefault());
+document.addEventListener('selectstart', e => e.preventDefault());
 </script>
 </body>
 </html>
