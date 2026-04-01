@@ -4,6 +4,7 @@ var WebSocket = require("ws");
 var crypto = require("crypto");
 var fs = require("fs");
 var path = require("path");
+var Database = require("better-sqlite3");
 
 var app = express();
 var server = http.createServer(app);
@@ -20,7 +21,7 @@ var BID_TIMEOUT_MS = 10000;
 var MAX_BIDS_PER_TURN = 3;
 var STARTING_AP = 10;
 var LEADERBOARD_FILE = path.join(__dirname, "leaderboard.json");
-var HISTORY_FILE = path.join(__dirname, "game-history.json");
+var DB_PATH = process.env.CROWN_DB || path.join(__dirname, "data", "crown.db");
 var MAX_HISTORY = 50;
 
 var PLAYER_COLORS = ["#e07070", "#70a0e0", "#70c070", "#d0a040"];
@@ -48,15 +49,30 @@ function saveLeaderboard(lb) {
   fs.writeFileSync(LEADERBOARD_FILE, JSON.stringify(lb, null, 2));
 }
 
+// SQLite database for persistent history
+var db;
+function initDB() {
+  var dir = path.dirname(DB_PATH);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  db = new Database(DB_PATH);
+  db.pragma("journal_mode = WAL");
+  db.exec(`CREATE TABLE IF NOT EXISTS games (
+    id TEXT PRIMARY KEY,
+    date TEXT NOT NULL,
+    data TEXT NOT NULL
+  )`);
+}
+initDB();
+
 function loadHistory() {
-  try { return JSON.parse(fs.readFileSync(HISTORY_FILE, "utf8")); }
-  catch (e) { return []; }
+  try {
+    var rows = db.prepare("SELECT data FROM games ORDER BY date DESC LIMIT ?").all(MAX_HISTORY);
+    return rows.map(function(r) { return JSON.parse(r.data); });
+  } catch (e) { console.error("Failed to load history:", e.message); return []; }
 }
 
 function saveHistory(history) {
-  try {
-    fs.writeFileSync(HISTORY_FILE, JSON.stringify(history));
-  } catch (e) { console.error("Failed to save history:", e.message); }
+  // no-op — individual saves handled by saveGameToHistory
 }
 
 function saveGameToHistory() {
@@ -101,10 +117,11 @@ function saveGameToHistory() {
     turn.crown_streak = crownStreak;
   }
 
-  var history = loadHistory();
-  history.unshift(entry);
-  if (history.length > MAX_HISTORY) history = history.slice(0, MAX_HISTORY);
-  saveHistory(history);
+  try {
+    db.prepare("INSERT INTO games (id, date, data) VALUES (?, ?, ?)").run(entry.id, entry.date, JSON.stringify(entry));
+    // Prune old entries beyond MAX_HISTORY
+    db.prepare("DELETE FROM games WHERE id NOT IN (SELECT id FROM games ORDER BY date DESC LIMIT ?)").run(MAX_HISTORY);
+  } catch (e) { console.error("Failed to save game history:", e.message); }
   return entry.id;
 }
 
@@ -419,13 +436,9 @@ app.get("/api/history", function(req, res) {
 });
 
 app.get("/api/history/:id", function(req, res) {
-  var history = loadHistory();
-  var game_entry = null;
-  for (var i = 0; i < history.length; i++) {
-    if (history[i].id === req.params.id) { game_entry = history[i]; break; }
-  }
-  if (!game_entry) return res.status(404).json({ error: "Game not found" });
-  res.json(game_entry);
+  var row = db.prepare("SELECT data FROM games WHERE id = ?").get(req.params.id);
+  if (!row) return res.status(404).json({ error: "Game not found" });
+  res.json(JSON.parse(row.data));
 });
 
 // Legacy API routes (redirect old game-id routes to new ones)

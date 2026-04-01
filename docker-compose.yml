@@ -5,4 +5,5 @@ services:
       - "20005:20005"
     volumes:
       - ./leaderboard.json:/app/leaderboard.json
+      - ./data:/app/data
     restart: unless-stopped
