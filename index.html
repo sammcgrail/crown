@@ -1362,9 +1362,11 @@ function fetchPastGames(reset) {
   }
   pastGamesLoading = true;
   var el = document.getElementById("pastGamesList");
-  if (pastGamesOffset === 0) {
+  var savedScroll = el.scrollTop;
+  var hadContent = el.children.length > 0 && !el.querySelector(".no-games");
+  if (pastGamesOffset === 0 && !hadContent) {
     el.innerHTML = '<span class="no-games">Loading...</span>';
-  } else {
+  } else if (pastGamesOffset > 0) {
     var existing = document.getElementById("pastGamesLoader");
     if (!existing) {
       var loader = document.createElement("div");
@@ -1397,6 +1399,7 @@ function fetchPastGames(reset) {
     }
     if (pastGamesOffset === 0) {
       el.innerHTML = html;
+      if (hadContent) el.scrollTop = savedScroll;
     } else {
       el.insertAdjacentHTML("beforeend", html);
     }
@@ -1418,7 +1421,7 @@ function fetchPastGames(reset) {
   el.addEventListener("scroll", function() {
     if (pastGamesLoading || !pastGamesHasMore) return;
     if (el.scrollTop + el.clientHeight >= el.scrollHeight - 40) {
-      fetchPastGames(true);
+      fetchPastGames(false);
     }
   });
 })();
