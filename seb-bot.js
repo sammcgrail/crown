@@ -176,3 +176,6 @@ function connectWS() {
 
 connectWS();
 console.log("seb Crown bot started. Token:", TOKEN ? TOKEN.substring(0, 8) + "..." : "NOT SET");
+
+// Keep process alive
+setInterval(function() {}, 30000);
