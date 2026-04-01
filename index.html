@@ -15,8 +15,8 @@
 }
 body {
   font-family: 'Georgia', serif;
-  background: #f5f0e8;
-  color: #3a3530;
+  background: #1a1816;
+  color: #e8e0d4;
   min-height: 100vh;
   touch-action: manipulation;
   -webkit-touch-callout: none;
@@ -35,21 +35,21 @@ h1 {
 .subtitle {
   text-align: center;
   font-size: 0.9em;
-  color: #8a8070;
+  color: #9a9080;
   margin-bottom: 16px;
 }
 .status-bar {
   text-align: center;
   padding: 10px;
-  background: #ebe5d8;
+  background: #2a2622;
   border-radius: 8px;
   margin-bottom: 16px;
   font-weight: bold;
   font-size: 1.1em;
 }
-.status-bar.waiting { color: #b08030; }
-.status-bar.in_progress { color: #407040; }
-.status-bar.finished { color: #904040; }
+.status-bar.waiting { color: #d4a040; }
+.status-bar.in_progress { color: #60c060; }
+.status-bar.finished { color: #e06060; }
 
 .grid-wrapper {
   display: flex;
@@ -60,15 +60,15 @@ h1 {
   display: inline-grid;
   grid-template-columns: repeat(11, 1fr);
   gap: 2px;
-  background: #c8c0b0;
+  background: #3a3530;
   padding: 2px;
   border-radius: 6px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.4);
 }
 .cell {
   width: 42px;
   height: 42px;
-  background: #faf7f0;
+  background: #2a2622;
   border-radius: 3px;
   display: flex;
   align-items: center;
@@ -79,10 +79,10 @@ h1 {
 }
 .cell.crown { border: 2px solid #d4a017; }
 .cell.crown::after {
-  content: '\u265A';
+  content: '\1F451';
   position: absolute;
   font-size: 20px;
-  opacity: 0.6;
+  opacity: 0.8;
   pointer-events: none;
 }
 .cell.owned { opacity: 0.95; }
@@ -100,14 +100,14 @@ h1 {
   h1 { font-size: 1.5em; }
 }
 .panel {
-  background: #ebe5d8;
+  background: #2a2622;
   border-radius: 8px;
   padding: 12px;
 }
 .panel h2 {
   font-size: 1em;
   margin-bottom: 8px;
-  border-bottom: 1px solid #d0c8b8;
+  border-bottom: 1px solid #3a3530;
   padding-bottom: 4px;
 }
 .player-row {
@@ -124,19 +124,19 @@ h1 {
   flex-shrink: 0;
 }
 .player-name { flex: 1; font-weight: bold; }
-.player-stat { font-size: 0.85em; color: #6a6050; }
+.player-stat { font-size: 0.85em; color: #a09888; }
 
 .bid-entry {
   font-size: 0.85em;
   padding: 3px 0;
-  border-bottom: 1px solid #ddd8cc;
+  border-bottom: 1px solid #3a3530;
 }
 .bid-entry:last-child { border-bottom: none; }
 
 .crown-info {
   text-align: center;
   padding: 8px;
-  background: #ebe5d8;
+  background: #2a2622;
   border-radius: 8px;
   margin-bottom: 16px;
   font-size: 0.95em;
@@ -144,7 +144,7 @@ h1 {
 .crown-info .streak { color: #b08030; font-weight: bold; }
 
 .join-bar {
-  background: #ebe5d8;
+  background: #2a2622;
   border-radius: 8px;
   padding: 14px;
   text-align: center;
@@ -160,23 +160,28 @@ h1 {
   font-size: 1em;
   padding: 8px 16px;
   border-radius: 6px;
-  border: 1px solid #c8c0b0;
+  border: 1px solid #4a4540;
+}
+.join-bar input {
+  background: #1a1816;
+  color: #e8e0d4;
 }
 .join-bar button {
-  background: #3a3530;
-  color: #f5f0e8;
+  background: #d4a040;
+  color: #1a1816;
   cursor: pointer;
+  font-weight: bold;
 }
-.join-bar button:hover { background: #5a5040; }
+.join-bar button:hover { background: #e0b050; }
 .join-bar .msg {
   width: 100%;
   font-size: 0.85em;
-  color: #8a8070;
+  color: #9a9080;
   margin-top: 4px;
 }
 
 .bid-panel {
-  background: #ebe5d8;
+  background: #2a2622;
   border-radius: 8px;
   padding: 16px;
   margin-bottom: 16px;
@@ -193,16 +198,19 @@ h1 {
   width: 50px;
   padding: 4px;
   font-family: 'Georgia', serif;
-  border: 1px solid #c8c0b0;
+  border: 1px solid #4a4540;
   border-radius: 4px;
   text-align: center;
+  background: #1a1816;
+  color: #e8e0d4;
 }
 .bid-row button {
   font-family: 'Georgia', serif;
   padding: 4px 10px;
   border-radius: 4px;
-  border: 1px solid #c8c0b0;
-  background: #d8d0c0;
+  border: 1px solid #4a4540;
+  background: #3a3530;
+  color: #e8e0d4;
   cursor: pointer;
 }
 #submitBidsBtn {
@@ -221,7 +229,7 @@ h1 {
 
 .timer-bar {
   height: 4px;
-  background: #c8c0b0;
+  background: #3a3530;
   border-radius: 2px;
   margin-bottom: 12px;
   overflow: hidden;
@@ -233,7 +241,7 @@ h1 {
 }
 
 .history-panel {
-  background: #ebe5d8;
+  background: #2a2622;
   border-radius: 8px;
   padding: 12px;
   margin-bottom: 16px;
@@ -242,15 +250,15 @@ h1 {
 }
 .history-panel h2 { font-size: 1em; margin-bottom: 8px; }
 .history-turn { margin-bottom: 8px; font-size: 0.85em; }
-.history-turn strong { color: #5a5040; }
+.history-turn strong { color: #d4a040; }
 
 .leaderboard {
-  background: #ebe5d8;
+  background: #2a2622;
   border-radius: 8px;
   padding: 12px;
   margin-bottom: 16px;
 }
-.leaderboard h2 { font-size: 1em; margin-bottom: 8px; border-bottom: 1px solid #d0c8b8; padding-bottom: 4px; }
+.leaderboard h2 { font-size: 1em; margin-bottom: 8px; border-bottom: 1px solid #3a3530; padding-bottom: 4px; }
 .lb-row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 0.9em; }
 .lb-row .rank { color: #b08030; font-weight: bold; min-width: 24px; }
 </style>
@@ -274,10 +282,10 @@ h1 {
 
   <div class="bid-panel" id="bidPanel" style="display:none">
     <h2>Your Bids (Turn <span id="bidTurn">1</span>) &mdash; AP: <span id="bidAP">0</span></h2>
-    <p style="font-size:0.85em;color:#6a6050;margin-bottom:8px">Click a cell to select it, then set your bid amount. Adjacent tiles cost 50% less.</p>
+    <p style="font-size:0.85em;color:#a09888;margin-bottom:8px">Click a cell to select it, then set your bid amount. Adjacent tiles cost 50% less.</p>
     <div id="bidList"></div>
     <button id="submitBidsBtn" onclick="submitBids()">Lock In Bids</button>
-    <div id="bidMsg" style="margin-top:6px;font-size:0.85em;color:#904040"></div>
+    <div id="bidMsg" style="margin-top:6px;font-size:0.85em;color:#e06060"></div>
   </div>
 
   <div class="panels">
@@ -346,13 +354,13 @@ function renderGrid(gridData) {
       cell.style.background = COLORS[owner];
       cell.classList.add("owned");
     } else {
-      cell.style.background = "#faf7f0";
+      cell.style.background = "#2a2622";
       cell.classList.remove("owned");
     }
     cell.style.outline = "";
     for (var i = 0; i < selectedCells.length; i++) {
       if (selectedCells[i].x === x && selectedCells[i].y === y) {
-        cell.style.outline = "3px solid #3a3530";
+        cell.style.outline = "3px solid #e8e0d4";
         break;
       }
     }
@@ -394,7 +402,7 @@ function renderCrownInfo(s) {
   if (!s || s.crown_holder === null) { el.style.display = "none"; return; }
   el.style.display = "block";
   var name = s.players[s.crown_holder] ? s.players[s.crown_holder].name : "?";
-  el.innerHTML = '\u265A <strong>' + esc(name) + '</strong> holds the Crown &mdash; <span class="streak">Streak: ' + s.crown_streak + '/3</span>';
+  el.innerHTML = '\uD83D\uDC51 <strong>' + esc(name) + '</strong> holds the Crown &mdash; <span class="streak">Streak: ' + s.crown_streak + '/3</span>';
 }
 
 function updateStatus(s) {
@@ -514,7 +522,7 @@ function submitBids() {
     } else {
       bidLocked = true;
       document.getElementById("bidMsg").textContent = "Bids locked in! Waiting for other players...";
-      document.getElementById("bidMsg").style.color = "#407040";
+      document.getElementById("bidMsg").style.color = "#60c060";
     }
   })
   .catch(function(err) {
@@ -562,7 +570,7 @@ function connectWS() {
       bidLocked = false;
       selectedCells = [];
       document.getElementById("bidMsg").textContent = "";
-      document.getElementById("bidMsg").style.color = "#904040";
+      document.getElementById("bidMsg").style.color = "#e06060";
       document.getElementById("submitBidsBtn").disabled = false;
       fetchState();
       startTimer();
