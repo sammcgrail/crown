@@ -318,12 +318,32 @@ h1 {
   background: #3a3530;
   border-radius: 2px;
   margin-bottom: 12px;
-  overflow: hidden;
+  overflow: visible;
+  position: relative;
 }
 .timer-bar .fill {
   height: 100%;
   background: #b08030;
   transition: width 1s linear;
+}
+.timer-bar .timer-text {
+  position: absolute;
+  right: 0;
+  top: -16px;
+  font-family: monospace;
+  font-size: 0.72em;
+  color: #b08030;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+@keyframes crownPulse {
+  0%   { box-shadow: 0 0 4px rgba(212,160,23,0.3); }
+  50%  { box-shadow: 0 0 16px rgba(212,160,23,0.8), 0 0 30px rgba(212,160,23,0.4); }
+  100% { box-shadow: 0 0 4px rgba(212,160,23,0.3); }
+}
+.crown-pulse {
+  animation: crownPulse 1s ease-in-out 2;
 }
 
 .history-panel {
@@ -458,7 +478,7 @@ h1 {
 
   <div class="status-bar" id="statusBar">Connecting...</div>
 
-  <div class="timer-bar" id="timerBarWrap" style="display:none"><div class="fill" id="timerFill"></div></div>
+  <div class="timer-bar" id="timerBarWrap" style="display:none"><div class="fill" id="timerFill"></div><span class="timer-text" id="timerText"></span></div>
 
   <div class="join-bar" id="joinBar" style="display:none"></div>
 
@@ -556,6 +576,7 @@ var selectedCells = [];
 var bidLocked = false;
 var timerInterval = null;
 var turnStartTime = null;
+var prevCrownHolder = null;
 
 function apiBase() {
   return window.location.pathname.replace(/\/$/, "");
@@ -665,8 +686,6 @@ function renderBidWeights(bids) {
     cell.appendChild(tooltip);
   });
 
-  // Auto-clear after 5 seconds
-  setTimeout(clearBidWeights, 5000);
 }
 
 function renderScores(players) {
@@ -734,10 +753,23 @@ function renderPrevBids(bids) {
 
 function renderCrownInfo(s) {
   var el = document.getElementById("crownInfo");
-  if (!s || s.crown_holder === null) { el.style.display = "none"; return; }
+  if (!s || s.crown_holder === null) { el.style.display = "none"; prevCrownHolder = null; return; }
   el.style.display = "block";
   var name = s.players[s.crown_holder] ? s.players[s.crown_holder].name : "?";
   el.innerHTML = '\uD83D\uDC51 <strong>' + esc(name) + '</strong> holds the Crown &mdash; <span class="streak">Streak: ' + s.crown_streak + '/3</span>';
+  // Pulse the crown cell (5,5) when holder changes
+  if (s.crown_holder !== prevCrownHolder && prevCrownHolder !== null) {
+    var cells = document.querySelectorAll(".cell");
+    cells.forEach(function(cell) {
+      if (parseInt(cell.dataset.x) === 5 && parseInt(cell.dataset.y) === 5) {
+        cell.classList.remove("crown-pulse");
+        void cell.offsetWidth; // force reflow to restart animation
+        cell.classList.add("crown-pulse");
+        setTimeout(function() { cell.classList.remove("crown-pulse"); }, 2000);
+      }
+    });
+  }
+  prevCrownHolder = s.crown_holder;
 }
 
 function updateStatus(s) {
@@ -980,13 +1012,26 @@ function startTimer() {
   turnStartTime = Date.now();
   var wrap = document.getElementById("timerBarWrap");
   var fill = document.getElementById("timerFill");
+  var timerText = document.getElementById("timerText");
   wrap.style.display = "block";
   fill.style.width = "100%";
+  timerText.textContent = "10s";
   if (timerInterval) clearInterval(timerInterval);
   timerInterval = setInterval(function() {
     var elapsed = Date.now() - turnStartTime;
     var pct = Math.max(0, 100 - (elapsed / 100));
     fill.style.width = pct + "%";
+    var secsLeft = Math.ceil((10000 - elapsed) / 1000);
+    if (secsLeft <= 0) {
+      timerText.textContent = "LOCK!";
+      timerText.style.color = "#e06060";
+    } else if (secsLeft <= 2) {
+      timerText.textContent = "LOCK!";
+      timerText.style.color = "#e06060";
+    } else {
+      timerText.textContent = secsLeft + "s";
+      timerText.style.color = "#b08030";
+    }
     if (pct <= 0) clearInterval(timerInterval);
   }, 1000);
 }
