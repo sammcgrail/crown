@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <base href="/crown/">
 <title>Crown</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='4' fill='%231a1816'/%3E%3Cpath d='M6 22L8 12L12 16L16 8L20 16L24 12L26 22Z' fill='%23d4a040'/%3E%3Crect x='6' y='22' width='20' height='3' rx='1' fill='%23d4a040'/%3E%3Ccircle cx='8' cy='12' r='1.5' fill='%23d4a040'/%3E%3Ccircle cx='16' cy='8' r='1.5' fill='%23d4a040'/%3E%3Ccircle cx='24' cy='12' r='1.5' fill='%23d4a040'/%3E%3C/svg%3E">
 <style>
 * {
   margin: 0; padding: 0; box-sizing: border-box;
@@ -115,6 +116,7 @@ h1 {
   display: flex;
   justify-content: center;
   margin-bottom: 16px;
+  position: relative;
 }
 .grid {
   display: inline-grid;
@@ -449,6 +451,111 @@ h1 {
   color: #9a9080;
 }
 .no-games { color: #9a9080; font-style: italic; font-size: 0.85em; }
+
+/* Tile transition animations */
+@keyframes tilePulse {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
+@keyframes tileGlow {
+  0% { box-shadow: 0 0 8px 2px rgba(212, 160, 64, 0.6); }
+  100% { box-shadow: 0 0 0 0 rgba(212, 160, 64, 0); }
+}
+.cell {
+  transition: background 0.3s, transform 0.3s ease;
+}
+.cell.tile-pulse {
+  animation: tilePulse 0.35s ease-out;
+}
+.cell.tile-glow {
+  animation: tileGlow 0.8s ease-out forwards;
+}
+
+/* Bid reveal flash */
+@keyframes bidFlash {
+  0% { opacity: 0.7; }
+  50% { opacity: 0.9; }
+  100% { opacity: 0; }
+}
+.cell .bid-flash-overlay {
+  position: absolute;
+  inset: 0;
+  border-radius: 3px;
+  pointer-events: none;
+  z-index: 3;
+  opacity: 0;
+  animation: bidFlash 0.6s ease-out forwards;
+}
+
+/* Turn counter overlay */
+.turn-counter {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(26, 24, 22, 0.85);
+  color: #d4a040;
+  font-family: 'Georgia', serif;
+  font-size: 0.8em;
+  font-weight: bold;
+  padding: 4px 10px;
+  border-radius: 12px;
+  border: 1px solid #3a3530;
+  z-index: 5;
+  pointer-events: none;
+  letter-spacing: 0.5px;
+}
+
+/* Replay dark mode polish */
+.replay-section h2 {
+  color: #d4a040;
+}
+.past-games {
+  border: 1px solid #3a3530;
+}
+.past-game-row {
+  border: 1px solid transparent;
+  transition: background 0.2s, border-color 0.2s;
+}
+.past-game-row:hover {
+  border-color: #3a3530;
+}
+.past-game-row.active {
+  background: #2e2a26;
+  border-left: 3px solid #d4a040;
+  border-color: #d4a040 transparent transparent transparent;
+  border-left: 3px solid #d4a040;
+}
+.replay-controls {
+  border: 1px solid #3a3530;
+}
+.replay-bar button {
+  transition: background 0.2s, color 0.2s;
+}
+.replay-bar button:active {
+  transform: scale(0.95);
+}
+.replay-bar select {
+  transition: border-color 0.2s;
+}
+.replay-bar select:focus {
+  border-color: #d4a040;
+  outline: none;
+}
+.replay-progress {
+  transition: background 0.2s;
+  height: 6px;
+  margin-top: 8px;
+}
+.replay-progress:hover {
+  background: #4a4540;
+}
+.replay-progress .fill {
+  transition: width 0.3s ease;
+}
+.replay-bids {
+  transition: opacity 0.3s;
+}
 </style>
 </head>
 <body>
@@ -481,6 +588,7 @@ h1 {
     <div class="col-center">
       <div class="grid-wrapper">
         <div class="grid" id="grid"></div>
+        <div class="turn-counter" id="turnCounter" style="display:none">Turn 0/30</div>
       </div>
 
       <div class="bid-panel" id="bidPanel" style="display:none">
@@ -554,6 +662,7 @@ var myPlayerIndex = null;
 var ws = null;
 var selectedCells = [];
 var bidLocked = false;
+var previousGrid = null;
 var timerInterval = null;
 var turnStartTime = null;
 
@@ -584,12 +693,24 @@ function renderGrid(gridData) {
     var x = parseInt(cell.dataset.x);
     var y = parseInt(cell.dataset.y);
     var owner = gridData[y][x];
+    var prevOwner = previousGrid ? previousGrid[y][x] : null;
+    var ownerChanged = previousGrid && owner !== prevOwner;
     if (owner !== null) {
       cell.style.background = COLORS[owner];
       cell.classList.add("owned");
     } else {
       cell.style.background = "#2a2622";
       cell.classList.remove("owned");
+    }
+    // Tile change animations
+    if (ownerChanged && owner !== null) {
+      cell.classList.remove("tile-pulse", "tile-glow");
+      void cell.offsetWidth; // force reflow
+      cell.classList.add("tile-pulse", "tile-glow");
+      cell.addEventListener("animationend", function handler() {
+        cell.classList.remove("tile-pulse", "tile-glow");
+        cell.removeEventListener("animationend", handler);
+      });
     }
     cell.style.outline = "";
     for (var i = 0; i < selectedCells.length; i++) {
@@ -599,10 +720,12 @@ function renderGrid(gridData) {
       }
     }
   });
+  // Track previous grid state for change detection
+  previousGrid = gridData.map(function(row) { return row.slice(); });
 }
 
 function clearBidWeights() {
-  var overlays = document.querySelectorAll(".bid-overlay, .bid-tooltip");
+  var overlays = document.querySelectorAll(".bid-overlay, .bid-tooltip, .bid-flash-overlay");
   overlays.forEach(function(el) { el.remove(); });
   // Reset any bid intensity on cells
   var cells = document.querySelectorAll(".cell");
@@ -663,6 +786,12 @@ function renderBidWeights(bids) {
     tooltip.textContent = parts.join(" vs ");
     if (isTied) tooltip.textContent += " (tied)";
     cell.appendChild(tooltip);
+
+    // Add bid flash overlay for reveal animation
+    var flash = document.createElement("div");
+    flash.className = "bid-flash-overlay";
+    flash.style.background = hex;
+    cell.appendChild(flash);
   });
 
   // Auto-clear after 5 seconds
@@ -758,6 +887,16 @@ function updateStatus(s) {
   }
 }
 
+function updateTurnCounter(s) {
+  var el = document.getElementById("turnCounter");
+  if (s && s.status === "in_progress") {
+    el.style.display = "block";
+    el.textContent = "Turn " + s.turn + "/" + s.max_turns;
+  } else {
+    el.style.display = "none";
+  }
+}
+
 function updateUI(s) {
   // Don't override display if we're in replay mode
   if (isReplayMode) return;
@@ -768,6 +907,7 @@ function updateUI(s) {
   renderBalances(s ? s.players : [], s ? s.crown_holder : null, s ? s.crown_streak : 0);
   renderPrevBids(s ? s.previous_bids : []);
   renderCrownInfo(s);
+  updateTurnCounter(s);
 
   // Join bar hidden — bots join via API, spectators watch only
   document.getElementById("joinBar").style.display = "none";
@@ -1109,6 +1249,11 @@ function replayRenderTurn() {
     bar.classList.add("in_progress");
     bar.textContent = "Replay: Turn " + (turn.turn || replayTurn + 1) + " of " + maxTurns;
   }
+
+  // Update turn counter for replay
+  var tc = document.getElementById("turnCounter");
+  tc.style.display = "block";
+  tc.textContent = "Turn " + (turn.turn || replayTurn + 1) + "/" + maxTurns;
 }
 
 function replayToggle() {
@@ -1182,6 +1327,6 @@ fetchPastGames();
 document.addEventListener('contextmenu', function(e) { e.preventDefault(); });
 document.addEventListener('selectstart', function(e) { e.preventDefault(); });
 </script>
-<div style="position:fixed;bottom:4px;right:8px;font-size:0.65em;color:#5a5040;opacity:0.6;font-family:monospace;">v1.1</div>
+<div style="position:fixed;bottom:4px;right:8px;font-size:0.65em;color:#5a5040;opacity:0.6;font-family:monospace;">v1.2</div>
 </body>
 </html>
