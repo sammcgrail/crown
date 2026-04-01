@@ -11,7 +11,7 @@ var wss = new WebSocket.Server({ noServer: true });
 
 var PORT = 20005;
 var GRID_SIZE = 11;
-var MAX_PLAYERS = 4;
+var MAX_PLAYERS = 3;
 var MAX_TURNS = 30;
 var CROWN_X = 5;
 var CROWN_Y = 5;
