@@ -463,6 +463,10 @@ h1 {
   border-bottom: 1px solid #3a3530;
   padding-bottom: 4px;
 }
+#pastGamesList {
+  max-height: 400px;
+  overflow-y: auto;
+}
 .past-game-row {
   display: flex;
   align-items: center;
@@ -1236,7 +1240,7 @@ function connectWS() {
     } else if (msg.type === "game_over") {
       fetchState();
       fetchLeaderboard();
-      fetchPastGames();
+      fetchPastGames(true);
       addLogEntry(esc(msg.winner_name) + " wins! (" + msg.reason + ")", "turn");
       if (msg.final_scores) {
         for (var fi = 0; fi < msg.final_scores.length; fi++) {
@@ -1244,7 +1248,7 @@ function connectWS() {
         }
       }
     } else if (msg.type === "autobattle_complete") {
-      fetchPastGames();
+      fetchPastGames(true);
       fetchLeaderboard();
       addLogEntry("Autobattle: " + esc(msg.winner) + " wins (" + msg.reason + ")", "turn");
     } else if (msg.type === "new_game") {
@@ -1342,17 +1346,46 @@ var replayInterval = null;
 var replaySpeed = 500;
 var isReplayMode = false;
 
-function fetchPastGames() {
-  fetch(apiBase() + "/api/history")
+var pastGamesOffset = 0;
+var pastGamesLoading = false;
+var pastGamesHasMore = true;
+var PAST_GAMES_LIMIT = 10;
+
+function fetchPastGames(reset) {
+  if (pastGamesLoading) return;
+  if (!reset && !pastGamesHasMore) return;
+  if (reset) {
+    pastGamesOffset = 0;
+    pastGamesHasMore = true;
+  }
+  pastGamesLoading = true;
+  var el = document.getElementById("pastGamesList");
+  if (pastGamesOffset === 0) {
+    el.innerHTML = '<span class="no-games">Loading...</span>';
+  } else {
+    var existing = document.getElementById("pastGamesLoader");
+    if (!existing) {
+      var loader = document.createElement("div");
+      loader.id = "pastGamesLoader";
+      loader.className = "no-games";
+      loader.textContent = "Loading...";
+      el.appendChild(loader);
+    }
+  }
+  fetch(apiBase() + "/api/history?limit=" + PAST_GAMES_LIMIT + "&offset=" + pastGamesOffset)
   .then(function(r) { return r.json(); })
-  .then(function(games) {
-    var el = document.getElementById("pastGamesList");
-    if (!games || games.length === 0) {
+  .then(function(resp) {
+    var games = resp.games || [];
+    pastGamesHasMore = resp.hasMore;
+    pastGamesLoading = false;
+    var loaderEl = document.getElementById("pastGamesLoader");
+    if (loaderEl) loaderEl.remove();
+    if (pastGamesOffset === 0 && games.length === 0) {
       el.innerHTML = '<span class="no-games">No completed games yet</span>';
       return;
     }
     var html = "";
-    for (var i = 0; i < Math.min(games.length, 10); i++) {
+    for (var i = 0; i < games.length; i++) {
       var g = games[i];
       var date = g.date ? new Date(g.date).toLocaleString() : "";
       html += '<div class="past-game-row" onclick="loadReplay(\'' + g.id + '\')" data-id="' + g.id + '">';
@@ -1360,13 +1393,33 @@ function fetchPastGames() {
       html += '<span class="past-game-meta">' + esc(g.reason || "") + ' &middot; ' + (g.turns || "?") + ' turns &middot; ' + date + '</span>';
       html += '</div>';
     }
-    el.innerHTML = html;
+    if (pastGamesOffset === 0) {
+      el.innerHTML = html;
+    } else {
+      el.insertAdjacentHTML("beforeend", html);
+    }
+    pastGamesOffset += games.length;
   })
   .catch(function() {
-    // API not available yet — show placeholder
-    document.getElementById("pastGamesList").innerHTML = '<span class="no-games">History API coming soon</span>';
+    pastGamesLoading = false;
+    var loaderEl = document.getElementById("pastGamesLoader");
+    if (loaderEl) loaderEl.remove();
+    if (pastGamesOffset === 0) {
+      el.innerHTML = '<span class="no-games">History API coming soon</span>';
+    }
   });
 }
+
+(function setupPastGamesScroll() {
+  var el = document.getElementById("pastGamesList");
+  if (!el) return;
+  el.addEventListener("scroll", function() {
+    if (pastGamesLoading || !pastGamesHasMore) return;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 40) {
+      fetchPastGames(true);
+    }
+  });
+})();
 
 function loadReplay(gameId) {
   replayStop();
@@ -1595,7 +1648,7 @@ function viewBot(name) {
                   msgEl.style.color = "#60c060";
                   msgEl.style.cursor = "pointer";
                   msgEl.onclick = function() { loadReplay(data.game_id); };
-                  fetchPastGames();
+                  fetchPastGames(true);
                   fetchLeaderboard();
                 })
                 .catch(function(err) {
@@ -1639,7 +1692,7 @@ function runAutobattle() {
     msgEl.style.color = "#60c060";
     msgEl.style.cursor = "pointer";
     msgEl.onclick = function() { loadReplay(data.game_id); };
-    fetchPastGames();
+    fetchPastGames(true);
     fetchLeaderboard();
   })
   .catch(function(err) {
@@ -1651,7 +1704,7 @@ function runAutobattle() {
 initGrid();
 connectWS();
 fetchLeaderboard();
-fetchPastGames();
+fetchPastGames(true);
 fetchBots();
 </script>
 <script>

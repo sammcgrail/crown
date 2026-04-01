@@ -239,7 +239,7 @@ function runAutobot(name, gameState, overrideCode) {
     var input = JSON.stringify({ code: code, state: gameState });
     var result = child_process.execFileSync(
       process.execPath,
-      ["--max-old-space-size=32", "--no-warnings", path.join(__dirname, "bot-runner.js")],
+      ["--max-old-space-size=32", "--no-warnings", "--experimental-permission", "--allow-fs-read=" + path.join(__dirname, "bot-runner.js"), path.join(__dirname, "bot-runner.js")],
       {
         input: input,
         timeout: 3000,
@@ -264,7 +264,7 @@ function runAutobotBatch(items) {
     var input = JSON.stringify({ batch: items });
     var result = child_process.execFileSync(
       process.execPath,
-      ["--max-old-space-size=64", "--no-warnings", path.join(__dirname, "bot-runner.js")],
+      ["--max-old-space-size=64", "--no-warnings", "--experimental-permission", "--allow-fs-read=" + path.join(__dirname, "bot-runner.js"), path.join(__dirname, "bot-runner.js")],
       {
         input: input,
         timeout: 30000, // 30s for a full game
@@ -688,9 +688,16 @@ app.post("/api/bid", function(req, res) {
 app.get("/api/leaderboard", function(req, res) { res.json(loadLeaderboard()); });
 
 app.get("/api/history", function(req, res) {
-  var history = loadHistory();
-  // Return summary list without full turn data
-  var summary = history.map(function(g) {
+  var limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 50);
+  var offset = Math.max(parseInt(req.query.offset) || 0, 0);
+  var totalRow = db.prepare("SELECT COUNT(*) as total FROM games").get();
+  var total = totalRow ? totalRow.total : 0;
+  var rows;
+  try {
+    rows = db.prepare("SELECT data FROM games ORDER BY date DESC LIMIT ? OFFSET ?").all(limit, offset);
+  } catch (e) { console.error("Failed to load history:", e.message); rows = []; }
+  var summary = rows.map(function(r) {
+    var g = JSON.parse(r.data);
     return {
       id: g.id,
       date: g.date,
@@ -701,7 +708,7 @@ app.get("/api/history", function(req, res) {
       turns: g.turns ? g.turns.length : 0
     };
   });
-  res.json(summary);
+  res.json({ games: summary, total: total, hasMore: offset + limit < total });
 });
 
 app.get("/api/history/:id", function(req, res) {
