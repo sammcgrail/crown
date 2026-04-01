@@ -1,0 +1,8 @@
+services:
+  crown:
+    build: .
+    ports:
+      - "20005:20005"
+    volumes:
+      - ./leaderboard.json:/app/leaderboard.json
+    restart: unless-stopped
