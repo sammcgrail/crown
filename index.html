@@ -22,9 +22,69 @@ body {
   -webkit-touch-callout: none;
 }
 .container {
-  max-width: 800px;
+  max-width: 1200px;
   margin: 0 auto;
   padding: 16px;
+}
+.main-layout {
+  display: grid;
+  grid-template-columns: 220px 1fr 280px;
+  gap: 16px;
+  align-items: start;
+}
+.main-layout .col-left, .main-layout .col-right {
+  position: sticky;
+  top: 16px;
+}
+.event-log {
+  background: #ebe5d8;
+  border-radius: 8px;
+  padding: 12px;
+  max-height: 520px;
+  overflow-y: auto;
+  font-size: 0.82em;
+}
+.event-log h2 { font-size: 1em; margin-bottom: 8px; border-bottom: 1px solid #d0c8b8; padding-bottom: 4px; }
+.log-entry {
+  padding: 4px 0;
+  border-bottom: 1px solid #ddd8cc;
+  line-height: 1.4;
+}
+.log-entry:last-child { border-bottom: none; }
+.log-entry .log-turn { color: #b08030; font-weight: bold; font-size: 0.9em; }
+.log-entry .log-action { color: #5a5040; }
+.log-entry .log-strategy { color: #407040; font-style: italic; }
+.player-balance {
+  background: #ebe5d8;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+.player-balance h2 { font-size: 1em; margin-bottom: 8px; border-bottom: 1px solid #d0c8b8; padding-bottom: 4px; }
+.balance-card {
+  padding: 8px;
+  margin-bottom: 6px;
+  background: #f5f0e8;
+  border-radius: 6px;
+  border-left: 4px solid #ccc;
+}
+.balance-card .bal-name { font-weight: bold; font-size: 0.95em; }
+.balance-card .bal-stats { font-size: 0.82em; color: #6a6050; margin-top: 2px; }
+.balance-card .bal-bar {
+  height: 4px;
+  background: #d0c8b0;
+  border-radius: 2px;
+  margin-top: 4px;
+  overflow: hidden;
+}
+.balance-card .bal-bar .bal-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.5s ease;
+}
+@media (max-width: 900px) {
+  .main-layout { grid-template-columns: 1fr; }
+  .main-layout .col-left, .main-layout .col-right { position: static; }
 }
 h1 {
   text-align: center;
@@ -268,32 +328,52 @@ h1 {
 
   <div class="crown-info" id="crownInfo" style="display:none"></div>
 
-  <div class="grid-wrapper">
-    <div class="grid" id="grid"></div>
-  </div>
-
-  <div class="bid-panel" id="bidPanel" style="display:none">
-    <h2>Your Bids (Turn <span id="bidTurn">1</span>) &mdash; AP: <span id="bidAP">0</span></h2>
-    <p style="font-size:0.85em;color:#6a6050;margin-bottom:8px">Click a cell to select it, then set your bid amount. Adjacent tiles cost 50% less.</p>
-    <div id="bidList"></div>
-    <button id="submitBidsBtn" onclick="submitBids()">Lock In Bids</button>
-    <div id="bidMsg" style="margin-top:6px;font-size:0.85em;color:#904040"></div>
-  </div>
-
-  <div class="panels">
-    <div class="panel" id="scorePanel">
-      <h2>Scoreboard</h2>
-      <div id="scoreList"><em>No players yet</em></div>
+  <div class="main-layout">
+    <!-- Left Column: Player Balances -->
+    <div class="col-left">
+      <div class="player-balance">
+        <h2>Players</h2>
+        <div id="balanceList"><em>No players yet</em></div>
+      </div>
+      <div class="leaderboard" id="leaderboardPanel">
+        <h2>Leaderboard</h2>
+        <div id="lbList"><em>No games played yet</em></div>
+      </div>
     </div>
-    <div class="panel">
-      <h2>Previous Bids</h2>
-      <div id="prevBids"><em>None yet</em></div>
-    </div>
-  </div>
 
-  <div class="leaderboard" id="leaderboardPanel">
-    <h2>Leaderboard</h2>
-    <div id="lbList"><em>No games played yet</em></div>
+    <!-- Center: Grid + Controls -->
+    <div class="col-center">
+      <div class="grid-wrapper">
+        <div class="grid" id="grid"></div>
+      </div>
+
+      <div class="bid-panel" id="bidPanel" style="display:none">
+        <h2>Your Bids (Turn <span id="bidTurn">1</span>) &mdash; AP: <span id="bidAP">0</span></h2>
+        <p style="font-size:0.85em;color:#6a6050;margin-bottom:8px">Click a cell to select it, then set your bid amount. Adjacent tiles cost 50% less.</p>
+        <div id="bidList"></div>
+        <button id="submitBidsBtn" onclick="submitBids()">Lock In Bids</button>
+        <div id="bidMsg" style="margin-top:6px;font-size:0.85em;color:#904040"></div>
+      </div>
+
+      <div class="panels">
+        <div class="panel" id="scorePanel" style="display:none">
+          <h2>Scoreboard</h2>
+          <div id="scoreList"><em>No players yet</em></div>
+        </div>
+        <div class="panel">
+          <h2>Previous Bids</h2>
+          <div id="prevBids"><em>None yet</em></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Column: Event Log -->
+    <div class="col-right">
+      <div class="event-log">
+        <h2>Live Feed</h2>
+        <div id="eventLog"><em>Waiting for game to start...</em></div>
+      </div>
+    </div>
   </div>
 
   <div class="history-panel" id="historyPanel" style="display:none">
@@ -377,6 +457,39 @@ function renderScores(players) {
   document.getElementById("scoreList").innerHTML = html;
 }
 
+function renderBalances(players, crownHolder, crownStreak) {
+  var el = document.getElementById("balanceList");
+  if (!players || players.length === 0) { el.innerHTML = "<em>No players yet</em>"; return; }
+  var maxTiles = 1;
+  for (var i = 0; i < players.length; i++) {
+    if (players[i].tiles > maxTiles) maxTiles = players[i].tiles;
+  }
+  var html = "";
+  for (var i = 0; i < players.length; i++) {
+    var p = players[i];
+    var pct = Math.round((p.tiles / (GRID_SIZE * GRID_SIZE)) * 100);
+    var crown = (crownHolder === i) ? " \u265A" + crownStreak : "";
+    html += '<div class="balance-card" style="border-left-color:' + COLORS[i] + '">';
+    html += '<div class="bal-name" style="color:' + COLORS[i] + '">' + esc(p.name) + crown + '</div>';
+    html += '<div class="bal-stats">' + p.tiles + ' tiles (' + pct + '%) &middot; ' + p.ap + ' AP</div>';
+    html += '<div class="bal-bar"><div class="bal-fill" style="width:' + pct + '%;background:' + COLORS[i] + '"></div></div>';
+    html += '</div>';
+  }
+  el.innerHTML = html;
+}
+
+function addLogEntry(text, type) {
+  var el = document.getElementById("eventLog");
+  if (el.querySelector("em")) el.innerHTML = "";
+  var entry = document.createElement("div");
+  entry.className = "log-entry";
+  var cls = type === "strategy" ? "log-strategy" : type === "turn" ? "log-turn" : "log-action";
+  entry.innerHTML = '<span class="' + cls + '">' + text + '</span>';
+  el.insertBefore(entry, el.firstChild);
+  // Keep log trimmed
+  while (el.children.length > 50) el.removeChild(el.lastChild);
+}
+
 function renderPrevBids(bids) {
   var el = document.getElementById("prevBids");
   if (!bids || bids.length === 0) { el.innerHTML = "<em>None yet</em>"; return; }
@@ -420,6 +533,7 @@ function updateUI(s) {
   updateStatus(s);
   renderGrid(s ? s.grid : null);
   renderScores(s ? s.players : []);
+  renderBalances(s ? s.players : [], s ? s.crown_holder : null, s ? s.crown_streak : 0);
   renderPrevBids(s ? s.previous_bids : []);
   renderCrownInfo(s);
 
@@ -556,8 +670,15 @@ function connectWS() {
     } else if (msg.type === "game_started") {
       updateUI(msg.state);
       startTimer();
+      addLogEntry("Game started! " + msg.state.players.length + " players", "turn");
+      for (var pi = 0; pi < msg.state.players.length; pi++) {
+        addLogEntry(esc(msg.state.players[pi].name) + " joined as " + COLOR_NAMES[pi], "action");
+      }
     } else if (msg.type === "player_joined") {
       fetchState();
+      addLogEntry(esc(msg.player_name) + " joined (" + msg.player_count + " players)", "action");
+    } else if (msg.type === "player_bid_locked") {
+      addLogEntry(esc(msg.player_name) + " locked in bids", "action");
     } else if (msg.type === "turn_resolved") {
       bidLocked = false;
       selectedCells = [];
@@ -567,9 +688,27 @@ function connectWS() {
       fetchState();
       startTimer();
       addHistoryEntry(msg);
+      // Log turn results
+      addLogEntry("Turn " + (msg.turn - 1) + " resolved", "turn");
+      if (msg.bids_revealed) {
+        for (var bi = 0; bi < msg.bids_revealed.length; bi++) {
+          var b = msg.bids_revealed[bi];
+          addLogEntry(esc(b.player_name) + " bid " + b.amount + " on (" + b.x + "," + b.y + ")", "action");
+        }
+      }
+      if (msg.crown_holder !== null) {
+        var chName = msg.scores[msg.crown_holder] ? msg.scores[msg.crown_holder].name : "?";
+        addLogEntry(esc(chName) + " holds the crown (streak " + msg.crown_streak + "/3)", "strategy");
+      }
     } else if (msg.type === "game_over") {
       fetchState();
       fetchLeaderboard();
+      addLogEntry(esc(msg.winner_name) + " wins! (" + msg.reason + ")", "turn");
+      if (msg.final_scores) {
+        for (var fi = 0; fi < msg.final_scores.length; fi++) {
+          addLogEntry(esc(msg.final_scores[fi].name) + ": " + msg.final_scores[fi].tiles + " tiles", "action");
+        }
+      }
     } else if (msg.type === "new_game") {
       // Reset player state for new game
       myToken = null;
@@ -578,6 +717,7 @@ function connectWS() {
       selectedCells = [];
       document.getElementById("historyList").innerHTML = "";
       document.getElementById("historyPanel").style.display = "none";
+      document.getElementById("eventLog").innerHTML = "<em>New game — waiting for players...</em>";
       fetchState();
     }
   };
