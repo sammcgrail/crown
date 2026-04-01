@@ -58,7 +58,7 @@ function saveHistory(history) {
 }
 
 function saveGameToHistory() {
-  if (!game || !game.winner === null) return;
+  if (!game || game.winner === null) return;
 
   var entry = {
     id: uuid(),
