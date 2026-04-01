@@ -321,6 +321,108 @@ h1 {
 .leaderboard h2 { font-size: 1em; margin-bottom: 8px; border-bottom: 1px solid #3a3530; padding-bottom: 4px; }
 .lb-row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 0.9em; }
 .lb-row .rank { color: #b08030; font-weight: bold; min-width: 24px; }
+.replay-section {
+  margin-top: 16px;
+}
+.replay-section h2 {
+  font-size: 1.1em;
+  margin-bottom: 12px;
+}
+.past-games {
+  background: #2a2622;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 16px;
+}
+.past-games h2 {
+  font-size: 1em;
+  margin-bottom: 8px;
+  border-bottom: 1px solid #3a3530;
+  padding-bottom: 4px;
+}
+.past-game-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px;
+  margin-bottom: 4px;
+  background: #1a1816;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.2s;
+  font-size: 0.85em;
+}
+.past-game-row:hover { background: #2e2a26; }
+.past-game-row.active { border-left: 3px solid #d4a040; }
+.past-game-winner { font-weight: bold; }
+.past-game-meta { color: #9a9080; font-size: 0.8em; }
+.replay-controls {
+  background: #2a2622;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 16px;
+  display: none;
+}
+.replay-controls h2 {
+  font-size: 1em;
+  margin-bottom: 8px;
+  border-bottom: 1px solid #3a3530;
+  padding-bottom: 4px;
+}
+.replay-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.replay-bar button {
+  font-family: 'Georgia', serif;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid #3a3530;
+  background: #1a1816;
+  color: #e8e0d4;
+  cursor: pointer;
+  font-size: 0.85em;
+}
+.replay-bar button:hover { background: #3a3530; }
+.replay-bar button.active { background: #d4a040; color: #1a1816; }
+.replay-bar select {
+  font-family: 'Georgia', serif;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid #3a3530;
+  background: #1a1816;
+  color: #e8e0d4;
+  font-size: 0.85em;
+}
+.replay-turn-label {
+  color: #d4a040;
+  font-weight: bold;
+  font-size: 0.9em;
+  margin-left: auto;
+}
+.replay-progress {
+  width: 100%;
+  height: 4px;
+  background: #3a3530;
+  border-radius: 2px;
+  overflow: hidden;
+  cursor: pointer;
+}
+.replay-progress .fill {
+  height: 100%;
+  background: #d4a040;
+  border-radius: 2px;
+  transition: width 0.3s;
+}
+.replay-bids {
+  margin-top: 8px;
+  font-size: 0.82em;
+  color: #9a9080;
+}
+.no-games { color: #9a9080; font-style: italic; font-size: 0.85em; }
 </style>
 </head>
 <body>
@@ -387,6 +489,32 @@ h1 {
   <div class="history-panel" id="historyPanel" style="display:none">
     <h2>Turn History</h2>
     <div id="historyList"></div>
+  </div>
+
+  <div class="replay-section">
+    <div class="past-games">
+      <h2>Past Games</h2>
+      <div id="pastGamesList"><span class="no-games">No completed games yet</span></div>
+    </div>
+    <div class="replay-controls" id="replayControls">
+      <h2>Replay — <span id="replayTitle">Game</span></h2>
+      <div class="replay-bar">
+        <button onclick="replayStep(-1)" title="Previous turn">&#9664;&#9664;</button>
+        <button id="replayPlayBtn" onclick="replayToggle()" title="Play/Pause">&#9654;</button>
+        <button onclick="replayStep(1)" title="Next turn">&#9654;&#9654;</button>
+        <select id="replaySpeed" onchange="replaySetSpeed(this.value)">
+          <option value="1000">1x</option>
+          <option value="500" selected>2x</option>
+          <option value="200">5x</option>
+          <option value="100">10x</option>
+        </select>
+        <span class="replay-turn-label">Turn <span id="replayTurnNum">0</span>/<span id="replayTurnMax">0</span></span>
+      </div>
+      <div class="replay-progress" onclick="replaySeek(event)">
+        <div class="fill" id="replayProgressFill"></div>
+      </div>
+      <div class="replay-bids" id="replayBids"></div>
+    </div>
   </div>
 </div>
 
@@ -537,6 +665,8 @@ function updateStatus(s) {
 }
 
 function updateUI(s) {
+  // Don't override display if we're in replay mode
+  if (isReplayMode) return;
   state = s;
   updateStatus(s);
   renderGrid(s ? s.grid : null);
@@ -704,6 +834,7 @@ function connectWS() {
     } else if (msg.type === "game_over") {
       fetchState();
       fetchLeaderboard();
+      fetchPastGames();
       addLogEntry(esc(msg.winner_name) + " wins! (" + msg.reason + ")", "turn");
       if (msg.final_scores) {
         for (var fi = 0; fi < msg.final_scores.length; fi++) {
@@ -782,9 +913,173 @@ function addHistoryEntry(msg) {
 
 function esc(s) { var d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
 
+// --- Replay System ---
+var replayData = null;
+var replayTurn = 0;
+var replayPlaying = false;
+var replayInterval = null;
+var replaySpeed = 500;
+var isReplayMode = false;
+
+function fetchPastGames() {
+  fetch(apiBase() + "/api/history")
+  .then(function(r) { return r.json(); })
+  .then(function(games) {
+    var el = document.getElementById("pastGamesList");
+    if (!games || games.length === 0) {
+      el.innerHTML = '<span class="no-games">No completed games yet</span>';
+      return;
+    }
+    var html = "";
+    for (var i = 0; i < Math.min(games.length, 10); i++) {
+      var g = games[i];
+      var date = g.date ? new Date(g.date).toLocaleString() : "";
+      html += '<div class="past-game-row" onclick="loadReplay(\'' + g.id + '\')" data-id="' + g.id + '">';
+      html += '<span class="past-game-winner" style="color:' + (COLORS[g.winner] || '#e8e0d4') + '">' + esc(g.winner_name || "?") + ' wins</span>';
+      html += '<span class="past-game-meta">' + esc(g.reason || "") + ' &middot; ' + (g.turns || "?") + ' turns &middot; ' + date + '</span>';
+      html += '</div>';
+    }
+    el.innerHTML = html;
+  })
+  .catch(function() {
+    // API not available yet — show placeholder
+    document.getElementById("pastGamesList").innerHTML = '<span class="no-games">History API coming soon</span>';
+  });
+}
+
+function loadReplay(gameId) {
+  replayStop();
+  fetch(apiBase() + "/api/history/" + gameId)
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.error) return;
+    replayData = data;
+    replayTurn = 0;
+    isReplayMode = true;
+    document.getElementById("replayControls").style.display = "block";
+    document.getElementById("replayTitle").textContent = (data.winner_name || "Game") + " wins (" + (data.reason || "territory") + ")";
+    document.getElementById("replayTurnMax").textContent = data.turns ? data.turns.length : 0;
+    // Highlight active game in list
+    var rows = document.querySelectorAll(".past-game-row");
+    rows.forEach(function(row) {
+      row.classList.toggle("active", row.dataset.id === gameId);
+    });
+    replayRenderTurn();
+  })
+  .catch(function(err) {
+    console.error("Failed to load replay:", err);
+  });
+}
+
+function replayRenderTurn() {
+  if (!replayData || !replayData.turns) return;
+  var turn = replayData.turns[replayTurn];
+  if (!turn) return;
+
+  document.getElementById("replayTurnNum").textContent = turn.turn || (replayTurn + 1);
+  var maxTurns = replayData.turns.length;
+  var pct = maxTurns > 0 ? ((replayTurn + 1) / maxTurns * 100) : 0;
+  document.getElementById("replayProgressFill").style.width = pct + "%";
+
+  // Render grid from turn snapshot
+  if (turn.grid) renderGrid(turn.grid);
+
+  // Render balances from turn data
+  if (turn.scores) {
+    renderBalances(turn.scores, turn.crown_holder !== undefined ? turn.crown_holder : null, turn.crown_streak || 0);
+  }
+
+  // Show bids for this turn
+  var bidsEl = document.getElementById("replayBids");
+  if (turn.bids && turn.bids.length > 0) {
+    var parts = [];
+    for (var i = 0; i < turn.bids.length; i++) {
+      var b = turn.bids[i];
+      parts.push('<strong style="color:' + (COLORS[b.player] || '#e8e0d4') + '">' + esc(b.player_name || "P" + b.player) + '</strong> bid ' + b.amount + ' on (' + b.x + ',' + b.y + ')');
+    }
+    bidsEl.innerHTML = parts.join(" &middot; ");
+  } else {
+    bidsEl.innerHTML = "No bids this turn";
+  }
+
+  // Update status bar for replay mode
+  var bar = document.getElementById("statusBar");
+  bar.className = "status-bar";
+  if (replayTurn >= maxTurns - 1 && replayData.winner_name) {
+    bar.classList.add("finished");
+    bar.textContent = "Replay: " + replayData.winner_name + " wins! (" + (replayData.reason || "territory") + ")";
+  } else {
+    bar.classList.add("in_progress");
+    bar.textContent = "Replay: Turn " + (turn.turn || replayTurn + 1) + " of " + maxTurns;
+  }
+}
+
+function replayToggle() {
+  if (replayPlaying) {
+    replayStop();
+  } else {
+    replayPlaying = true;
+    document.getElementById("replayPlayBtn").innerHTML = "&#9646;&#9646;";
+    replayInterval = setInterval(function() {
+      if (replayTurn < replayData.turns.length - 1) {
+        replayTurn++;
+        replayRenderTurn();
+      } else {
+        replayStop();
+      }
+    }, replaySpeed);
+  }
+}
+
+function replayStop() {
+  replayPlaying = false;
+  if (replayInterval) { clearInterval(replayInterval); replayInterval = null; }
+  var btn = document.getElementById("replayPlayBtn");
+  if (btn) btn.innerHTML = "&#9654;";
+}
+
+function replayStep(dir) {
+  replayStop();
+  var newTurn = replayTurn + dir;
+  if (newTurn < 0) newTurn = 0;
+  if (replayData && newTurn >= replayData.turns.length) newTurn = replayData.turns.length - 1;
+  replayTurn = newTurn;
+  replayRenderTurn();
+}
+
+function replaySeek(event) {
+  if (!replayData || !replayData.turns) return;
+  var bar = event.currentTarget;
+  var rect = bar.getBoundingClientRect();
+  var pct = (event.clientX - rect.left) / rect.width;
+  replayTurn = Math.floor(pct * replayData.turns.length);
+  if (replayTurn >= replayData.turns.length) replayTurn = replayData.turns.length - 1;
+  if (replayTurn < 0) replayTurn = 0;
+  replayRenderTurn();
+}
+
+function replaySetSpeed(ms) {
+  replaySpeed = parseInt(ms);
+  if (replayPlaying) {
+    replayStop();
+    replayToggle();
+  }
+}
+
+function exitReplay() {
+  isReplayMode = false;
+  replayStop();
+  replayData = null;
+  document.getElementById("replayControls").style.display = "none";
+  var rows = document.querySelectorAll(".past-game-row");
+  rows.forEach(function(row) { row.classList.remove("active"); });
+  fetchState(); // restore live view
+}
+
 initGrid();
 connectWS();
 fetchLeaderboard();
+fetchPastGames();
 </script>
 <script>
 document.addEventListener('contextmenu', function(e) { e.preventDefault(); });
