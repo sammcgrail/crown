@@ -113,9 +113,9 @@ h1 {
 .status-bar.finished { color: #e06060; }
 
 .grid-wrapper {
-  display: flex;
+  display: inline-flex;
   justify-content: center;
-  margin-bottom: 16px;
+  margin: 0 auto 16px;
   position: relative;
 }
 .grid {
@@ -136,7 +136,7 @@ h1 {
   align-items: center;
   justify-content: center;
   font-size: 18px;
-  transition: background 0.3s;
+  transition: background 0.3s, transform 0.3s ease;
   position: relative;
 }
 .cell .bid-overlay {
@@ -479,11 +479,8 @@ h1 {
   100% { transform: scale(1); }
 }
 @keyframes tileGlow {
-  0% { box-shadow: 0 0 8px 2px rgba(212, 160, 64, 0.6); }
-  100% { box-shadow: 0 0 0 0 rgba(212, 160, 64, 0); }
-}
-.cell {
-  transition: background 0.3s, transform 0.3s ease;
+  0% { filter: drop-shadow(0 0 8px rgba(212, 160, 64, 0.6)); }
+  100% { filter: drop-shadow(0 0 0 rgba(212, 160, 64, 0)); }
 }
 .cell.tile-pulse {
   animation: tilePulse 0.35s ease-out;
@@ -544,7 +541,6 @@ h1 {
   background: #2e2a26;
   border-left: 3px solid #d4a040;
   border-color: #d4a040 transparent transparent transparent;
-  border-left: 3px solid #d4a040;
 }
 .replay-controls {
   border: 1px solid #3a3530;
@@ -1111,6 +1107,7 @@ function connectWS() {
       }
     } else if (msg.type === "new_game") {
       // Reset player state for new game
+      previousGrid = null;
       myToken = null;
       myPlayerIndex = null;
       bidLocked = false;
@@ -1238,6 +1235,7 @@ function loadReplay(gameId) {
     replayData = data;
     replayTurn = 0;
     isReplayMode = true;
+    previousGrid = null;
     document.getElementById("replayControls").style.display = "block";
     document.getElementById("replayTitle").textContent = (data.winner_name || "Game") + " wins (" + (data.reason || "territory") + ")";
     document.getElementById("replayTurnMax").textContent = data.turns ? data.turns.length : 0;
@@ -1355,6 +1353,7 @@ function replaySetSpeed(ms) {
 
 function exitReplay() {
   isReplayMode = false;
+  previousGrid = null;
   replayStop();
   replayData = null;
   document.getElementById("replayControls").style.display = "none";
