@@ -54,7 +54,9 @@ function loadHistory() {
 }
 
 function saveHistory(history) {
-  fs.writeFileSync(HISTORY_FILE, JSON.stringify(history));
+  try {
+    fs.writeFileSync(HISTORY_FILE, JSON.stringify(history));
+  } catch (e) { console.error("Failed to save history:", e.message); }
 }
 
 function saveGameToHistory() {
