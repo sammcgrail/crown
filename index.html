@@ -77,9 +77,7 @@ h1 {
   transition: background 0.3s;
   position: relative;
 }
-.cell.crown {
-  border: 2px solid #d4a017;
-}
+.cell.crown { border: 2px solid #d4a017; }
 .cell.crown::after {
   content: '\u265A';
   position: absolute;
@@ -145,27 +143,37 @@ h1 {
 }
 .crown-info .streak { color: #b08030; font-weight: bold; }
 
-.setup-panel {
+.join-bar {
   background: #ebe5d8;
   border-radius: 8px;
-  padding: 20px;
+  padding: 14px;
   text-align: center;
   margin-bottom: 16px;
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
 }
-.setup-panel input, .setup-panel button {
+.join-bar input, .join-bar button {
   font-family: 'Georgia', serif;
   font-size: 1em;
   padding: 8px 16px;
   border-radius: 6px;
   border: 1px solid #c8c0b0;
-  margin: 4px;
 }
-.setup-panel button {
+.join-bar button {
   background: #3a3530;
   color: #f5f0e8;
   cursor: pointer;
 }
-.setup-panel button:hover { background: #5a5040; }
+.join-bar button:hover { background: #5a5040; }
+.join-bar .msg {
+  width: 100%;
+  font-size: 0.85em;
+  color: #8a8070;
+  margin-top: 4px;
+}
 
 .bid-panel {
   background: #ebe5d8;
@@ -235,6 +243,16 @@ h1 {
 .history-panel h2 { font-size: 1em; margin-bottom: 8px; }
 .history-turn { margin-bottom: 8px; font-size: 0.85em; }
 .history-turn strong { color: #5a5040; }
+
+.leaderboard {
+  background: #ebe5d8;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 16px;
+}
+.leaderboard h2 { font-size: 1em; margin-bottom: 8px; border-bottom: 1px solid #d0c8b8; padding-bottom: 4px; }
+.lb-row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 0.9em; }
+.lb-row .rank { color: #b08030; font-weight: bold; min-width: 24px; }
 </style>
 </head>
 <body>
@@ -242,23 +260,14 @@ h1 {
   <h1>CROWN</h1>
   <div class="subtitle">hold the crown. conquer the grid.</div>
 
-  <div class="status-bar" id="statusBar">Loading...</div>
+  <div class="status-bar" id="statusBar">Connecting...</div>
 
   <div class="timer-bar" id="timerBarWrap" style="display:none"><div class="fill" id="timerFill"></div></div>
 
-  <div class="setup-panel" id="setupPanel">
-    <div id="setupContent">
-      <p style="margin-bottom:12px">Create or join a game to begin.</p>
-      <div style="margin-bottom:8px">
-        <button onclick="createGame()">New Game</button>
-      </div>
-      <div>
-        <input id="joinGameId" placeholder="Game ID" style="width:220px">
-        <input id="joinName" placeholder="Your Name" style="width:120px">
-        <button onclick="joinGame()">Join</button>
-      </div>
-      <div id="setupMsg" style="margin-top:10px;font-size:0.9em;color:#8a8070"></div>
-    </div>
+  <div class="join-bar" id="joinBar">
+    <input id="joinName" placeholder="Your Name" style="width:160px">
+    <button onclick="joinGame()">Join Game</button>
+    <div class="msg" id="joinMsg"></div>
   </div>
 
   <div class="crown-info" id="crownInfo" style="display:none"></div>
@@ -286,6 +295,11 @@ h1 {
     </div>
   </div>
 
+  <div class="leaderboard" id="leaderboardPanel">
+    <h2>Leaderboard</h2>
+    <div id="lbList"><em>No games played yet</em></div>
+  </div>
+
   <div class="history-panel" id="historyPanel" style="display:none">
     <h2>Turn History</h2>
     <div id="historyList"></div>
@@ -299,7 +313,6 @@ var GRID_SIZE = 11;
 var state = null;
 var myToken = null;
 var myPlayerIndex = null;
-var myGameId = null;
 var ws = null;
 var selectedCells = [];
 var bidLocked = false;
@@ -340,8 +353,6 @@ function renderGrid(gridData) {
       cell.style.background = "#faf7f0";
       cell.classList.remove("owned");
     }
-    // Highlight selected cells
-    cell.classList.remove("selected");
     cell.style.outline = "";
     for (var i = 0; i < selectedCells.length; i++) {
       if (selectedCells[i].x === x && selectedCells[i].y === y) {
@@ -372,51 +383,39 @@ function renderScores(players) {
 
 function renderPrevBids(bids) {
   var el = document.getElementById("prevBids");
-  if (!bids || bids.length === 0) {
-    el.innerHTML = "<em>None yet</em>";
-    return;
-  }
+  if (!bids || bids.length === 0) { el.innerHTML = "<em>None yet</em>"; return; }
   var html = "";
   for (var i = 0; i < bids.length; i++) {
     var b = bids[i];
     var adj = b.effectiveCost < b.amount ? " (adj. cost: " + b.effectiveCost + ")" : "";
-    html += '<div class="bid-entry">';
-    html += '<strong style="color:' + COLORS[b.player] + '">' + esc(b.player_name) + '</strong>';
-    html += ' bid ' + b.amount + ' on (' + b.x + ',' + b.y + ')' + adj;
-    html += '</div>';
+    html += '<div class="bid-entry"><strong style="color:' + COLORS[b.player] + '">' + esc(b.player_name) + '</strong> bid ' + b.amount + ' on (' + b.x + ',' + b.y + ')' + adj + '</div>';
   }
   el.innerHTML = html;
 }
 
 function renderCrownInfo(s) {
   var el = document.getElementById("crownInfo");
-  if (!s || s.crown_holder === null) {
-    el.style.display = "none";
-    return;
-  }
+  if (!s || s.crown_holder === null) { el.style.display = "none"; return; }
   el.style.display = "block";
-  var name = s.players[s.crown_holder] ? s.players[s.crown_holder].name : "Player " + s.crown_holder;
+  var name = s.players[s.crown_holder] ? s.players[s.crown_holder].name : "?";
   el.innerHTML = '\u265A <strong>' + esc(name) + '</strong> holds the Crown &mdash; <span class="streak">Streak: ' + s.crown_streak + '/3</span>';
 }
 
 function updateStatus(s) {
   var bar = document.getElementById("statusBar");
   bar.className = "status-bar";
-  if (!s) {
-    bar.textContent = "No game loaded";
-    return;
-  }
+  if (!s) { bar.textContent = "Connecting..."; return; }
   if (s.status === "waiting") {
     bar.classList.add("waiting");
-    bar.textContent = "Waiting for players (" + s.players.length + "/4) \u2014 Game: " + s.game_id;
+    bar.textContent = "Waiting for players (" + s.players.length + "/4)";
   } else if (s.status === "in_progress") {
     bar.classList.add("in_progress");
     bar.textContent = "Turn " + s.turn + " of " + s.max_turns;
   } else if (s.status === "finished") {
     bar.classList.add("finished");
-    var wName = s.players[s.winner] ? s.players[s.winner].name : "Player " + s.winner;
-    var reason = s.win_reason === "crown" ? "held the Crown for 3 turns" : "most territory at turn limit";
-    bar.textContent = wName + " wins! (" + reason + ")";
+    var wName = s.players[s.winner] ? s.players[s.winner].name : "?";
+    var reason = s.win_reason === "crown" ? "held the Crown for 3 turns" : "most territory";
+    bar.textContent = wName + " wins! (" + reason + ") — new game in 10s";
   }
 }
 
@@ -428,6 +427,22 @@ function updateUI(s) {
   renderPrevBids(s ? s.previous_bids : []);
   renderCrownInfo(s);
 
+  // Show/hide join bar
+  var joinBar = document.getElementById("joinBar");
+  if (myToken !== null) {
+    joinBar.style.display = "none";
+  } else if (s && s.status === "waiting" && s.players.length < 4) {
+    joinBar.style.display = "flex";
+  } else if (s && s.status === "waiting") {
+    joinBar.style.display = "none";
+  } else if (s && s.status === "finished") {
+    joinBar.style.display = "flex";
+    document.getElementById("joinMsg").textContent = "New game starting soon — join up!";
+  } else {
+    joinBar.style.display = "none";
+  }
+
+  // Bid panel
   if (s && s.status === "in_progress" && myToken !== null && !bidLocked) {
     document.getElementById("bidPanel").style.display = "block";
     document.getElementById("bidTurn").textContent = s.turn;
@@ -438,18 +453,11 @@ function updateUI(s) {
   } else {
     document.getElementById("bidPanel").style.display = "none";
   }
-
-  if (s && s.status !== "waiting") {
-    document.getElementById("setupPanel").style.display = "none";
-  }
 }
 
 function cellClicked(cell) {
   if (!state || state.status !== "in_progress" || myToken === null || bidLocked) return;
-  var x = parseInt(cell.dataset.x);
-  var y = parseInt(cell.dataset.y);
-
-  // Check if already selected
+  var x = parseInt(cell.dataset.x), y = parseInt(cell.dataset.y);
   for (var i = 0; i < selectedCells.length; i++) {
     if (selectedCells[i].x === x && selectedCells[i].y === y) {
       selectedCells.splice(i, 1);
@@ -458,10 +466,7 @@ function cellClicked(cell) {
       return;
     }
   }
-  if (selectedCells.length >= 3) {
-    document.getElementById("bidMsg").textContent = "Max 3 tiles per turn";
-    return;
-  }
+  if (selectedCells.length >= 3) { document.getElementById("bidMsg").textContent = "Max 3 tiles per turn"; return; }
   selectedCells.push({ x: x, y: y, amount: 1 });
   renderGrid(state.grid);
   renderBidList();
@@ -469,19 +474,14 @@ function cellClicked(cell) {
 
 function renderBidList() {
   var el = document.getElementById("bidList");
-  if (selectedCells.length === 0) {
-    el.innerHTML = "<em>Click cells on the grid to bid</em>";
-    return;
-  }
+  if (selectedCells.length === 0) { el.innerHTML = "<em>Click cells on the grid to bid</em>"; return; }
   var html = "";
   for (var i = 0; i < selectedCells.length; i++) {
     var sc = selectedCells[i];
     var adj = isAdjacentClient(sc.x, sc.y) ? " (adjacent, 50% off)" : "";
-    html += '<div class="bid-row">';
-    html += '<span>(' + sc.x + ',' + sc.y + ')' + adj + '</span>';
+    html += '<div class="bid-row"><span>(' + sc.x + ',' + sc.y + ')' + adj + '</span>';
     html += '<input type="number" min="1" value="' + sc.amount + '" onchange="updateBidAmount(' + i + ', this.value)">';
-    html += '<button onclick="removeBid(' + i + ')">x</button>';
-    html += '</div>';
+    html += '<button onclick="removeBid(' + i + ')">x</button></div>';
   }
   el.innerHTML = html;
 }
@@ -490,34 +490,22 @@ function isAdjacentClient(x, y) {
   if (!state || myPlayerIndex === null) return false;
   var dirs = [[0,1],[0,-1],[1,0],[-1,0]];
   for (var d = 0; d < dirs.length; d++) {
-    var nx = x + dirs[d][0];
-    var ny = y + dirs[d][1];
-    if (nx >= 0 && nx < GRID_SIZE && ny >= 0 && ny < GRID_SIZE) {
+    var nx = x + dirs[d][0], ny = y + dirs[d][1];
+    if (nx >= 0 && nx < GRID_SIZE && ny >= 0 && ny < GRID_SIZE)
       if (state.grid[ny][nx] === myPlayerIndex) return true;
-    }
   }
   return false;
 }
 
-function updateBidAmount(index, val) {
-  selectedCells[index].amount = parseInt(val) || 1;
-}
-
-function removeBid(index) {
-  selectedCells.splice(index, 1);
-  renderGrid(state.grid);
-  renderBidList();
-}
+function updateBidAmount(index, val) { selectedCells[index].amount = parseInt(val) || 1; }
+function removeBid(index) { selectedCells.splice(index, 1); renderGrid(state.grid); renderBidList(); }
 
 function submitBids() {
-  if (!myToken || !myGameId || bidLocked) return;
-  var bids = selectedCells.map(function(sc) {
-    return { x: sc.x, y: sc.y, amount: sc.amount };
-  });
-
+  if (!myToken || bidLocked) return;
+  var bids = selectedCells.map(function(sc) { return { x: sc.x, y: sc.y, amount: sc.amount }; });
   document.getElementById("submitBidsBtn").disabled = true;
 
-  fetch(apiBase() + "/api/game/" + myGameId + "/bid", {
+  fetch(apiBase() + "/api/bid", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ token: myToken, bids: bids })
@@ -539,24 +527,9 @@ function submitBids() {
   });
 }
 
-function createGame() {
-  fetch(apiBase() + "/api/game/new", { method: "POST" })
-  .then(function(r) { return r.json(); })
-  .then(function(data) {
-    document.getElementById("joinGameId").value = data.game_id;
-    document.getElementById("setupMsg").textContent = "Game created: " + data.game_id;
-  });
-}
-
 function joinGame() {
-  var gameId = document.getElementById("joinGameId").value.trim();
   var name = document.getElementById("joinName").value.trim() || "Player";
-  if (!gameId) {
-    document.getElementById("setupMsg").textContent = "Enter a game ID";
-    return;
-  }
-
-  fetch(apiBase() + "/api/game/" + gameId + "/join", {
+  fetch(apiBase() + "/api/join", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name: name })
@@ -564,20 +537,20 @@ function joinGame() {
   .then(function(r) { return r.json(); })
   .then(function(data) {
     if (data.error) {
-      document.getElementById("setupMsg").textContent = data.error;
+      document.getElementById("joinMsg").textContent = data.error;
       return;
     }
     myToken = data.token;
     myPlayerIndex = data.player_id;
-    myGameId = gameId;
-    document.getElementById("setupMsg").textContent = "Joined as " + name + " (" + COLOR_NAMES[myPlayerIndex] + ")";
-    connectWS(gameId);
+    document.getElementById("joinBar").style.display = "none";
+    document.getElementById("joinMsg").textContent = "";
+    fetchState();
   });
 }
 
-function connectWS(gameId) {
+function connectWS() {
   var proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-  var wsUrl = proto + "//" + window.location.host + apiBase() + "/ws/" + gameId;
+  var wsUrl = proto + "//" + window.location.host + apiBase() + "/ws";
   ws = new WebSocket(wsUrl);
 
   ws.onmessage = function(e) {
@@ -588,35 +561,53 @@ function connectWS(gameId) {
       updateUI(msg.state);
       startTimer();
     } else if (msg.type === "player_joined") {
-      document.getElementById("setupMsg").textContent = msg.player_name + " joined (" + msg.player_count + "/4)";
-      // Refresh state
-      fetchState(gameId);
-    } else if (msg.type === "player_bid_locked") {
-      // Could show indicator
+      fetchState();
     } else if (msg.type === "turn_resolved") {
       bidLocked = false;
       selectedCells = [];
       document.getElementById("bidMsg").textContent = "";
       document.getElementById("bidMsg").style.color = "#904040";
       document.getElementById("submitBidsBtn").disabled = false;
-      fetchState(gameId);
+      fetchState();
       startTimer();
       addHistoryEntry(msg);
     } else if (msg.type === "game_over") {
-      fetchState(gameId);
+      fetchState();
+      fetchLeaderboard();
+    } else if (msg.type === "new_game") {
+      // Reset player state for new game
+      myToken = null;
+      myPlayerIndex = null;
+      bidLocked = false;
+      selectedCells = [];
+      document.getElementById("historyList").innerHTML = "";
+      document.getElementById("historyPanel").style.display = "none";
+      fetchState();
     }
   };
 
   ws.onclose = function() {
-    setTimeout(function() { connectWS(gameId); }, 2000);
+    setTimeout(function() { connectWS(); }, 2000);
   };
 }
 
-function fetchState(gameId) {
-  fetch(apiBase() + "/api/game/" + gameId + "/state")
+function fetchState() {
+  fetch(apiBase() + "/api/state")
   .then(function(r) { return r.json(); })
-  .then(function(data) {
-    if (!data.error) updateUI(data);
+  .then(function(data) { if (!data.error) updateUI(data); });
+}
+
+function fetchLeaderboard() {
+  fetch(apiBase() + "/api/leaderboard")
+  .then(function(r) { return r.json(); })
+  .then(function(lb) {
+    var el = document.getElementById("lbList");
+    if (!lb || lb.length === 0) { el.innerHTML = "<em>No games played yet</em>"; return; }
+    var html = "";
+    for (var i = 0; i < Math.min(lb.length, 10); i++) {
+      html += '<div class="lb-row"><span class="rank">#' + (i+1) + '</span><span>' + esc(lb[i].name) + '</span><span>' + lb[i].wins + ' wins</span></div>';
+    }
+    el.innerHTML = html;
   });
 }
 
@@ -626,7 +617,6 @@ function startTimer() {
   var fill = document.getElementById("timerFill");
   wrap.style.display = "block";
   fill.style.width = "100%";
-
   if (timerInterval) clearInterval(timerInterval);
   timerInterval = setInterval(function() {
     var elapsed = Date.now() - turnStartTime;
@@ -648,37 +638,20 @@ function addHistoryEntry(msg) {
       parts.push(esc(b.player_name) + " bid " + b.amount + " on (" + b.x + "," + b.y + ")");
     }
     html += parts.join("; ");
-  } else {
-    html += "No bids";
-  }
+  } else { html += "No bids"; }
   html += '</div>';
   list.innerHTML = html + list.innerHTML;
 }
 
-function esc(s) {
-  var d = document.createElement("div");
-  d.textContent = s;
-  return d.innerHTML;
-}
-
-// Check URL for game_id query param
-function checkUrlParams() {
-  var params = new URLSearchParams(window.location.search);
-  var gid = params.get("game");
-  if (gid) {
-    document.getElementById("joinGameId").value = gid;
-    // Spectator mode: just connect WS and watch
-    myGameId = gid;
-    connectWS(gid);
-  }
-}
+function esc(s) { var d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
 
 initGrid();
-checkUrlParams();
+connectWS();
+fetchLeaderboard();
 </script>
 <script>
-document.addEventListener('contextmenu', e => e.preventDefault());
-document.addEventListener('selectstart', e => e.preventDefault());
+document.addEventListener('contextmenu', function(e) { e.preventDefault(); });
+document.addEventListener('selectstart', function(e) { e.preventDefault(); });
 </script>
 </body>
 </html>
