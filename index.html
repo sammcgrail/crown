@@ -985,7 +985,7 @@ function startTimer() {
   if (timerInterval) clearInterval(timerInterval);
   timerInterval = setInterval(function() {
     var elapsed = Date.now() - turnStartTime;
-    var pct = Math.max(0, 100 - (elapsed / 300));
+    var pct = Math.max(0, 100 - (elapsed / 100));
     fill.style.width = pct + "%";
     if (pct <= 0) clearInterval(timerInterval);
   }, 1000);
