@@ -225,6 +225,24 @@ h1 {
   .cell { width: 28px; height: 28px; font-size: 13px; }
   .cell.crown::after { font-size: 14px; }
   h1 { font-size: 1.5em; }
+  .grid-coords-top, .grid-coords-bottom {
+    grid-template-columns: repeat(11, 28px);
+  }
+  .coord-label { font-size: 7px; }
+  .coord-label-row { height: 28px; font-size: 7px; }
+  .grid-coords-left { margin-right: 2px; }
+  .grid-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .bid-tooltip { font-size: 8px; top: -18px; }
+  .timer-text { font-size: 8px !important; }
+  .container { padding: 8px; }
+  .balance-card { padding: 6px; }
+  .balance-card .bal-name { font-size: 0.85em; }
+  .balance-card .bal-stats { font-size: 0.75em; }
+  .event-log { max-height: 300px; font-size: 0.78em; }
+  .replay-bar { gap: 4px; }
+  .replay-bar button { padding: 4px 8px; font-size: 0.8em; }
+  .past-game-row { padding: 6px; font-size: 0.8em; }
+  .status-bar { font-size: 0.95em; padding: 8px; }
 }
 .panel {
   background: #2a2622;
@@ -991,6 +1009,7 @@ function updateStatus(s) {
 function updateTurnCounter(s) {
   var el = document.getElementById("turnCounter");
   if (s && s.status === "in_progress") {
+  if (!el) return;
     el.style.display = "block";
     el.textContent = "Turn " + s.turn + "/" + s.max_turns;
   } else {
@@ -1368,8 +1387,8 @@ function replayRenderTurn() {
 
   // Update turn counter for replay
   var tc = document.getElementById("turnCounter");
-  tc.style.display = "block";
-  tc.textContent = "Turn " + (turn.turn || replayTurn + 1) + "/" + maxTurns;
+  if (tc) tc.style.display = "block";
+  if (tc) tc.textContent = "Turn " + (turn.turn || replayTurn + 1) + "/" + maxTurns;
 }
 
 function replayToggle() {

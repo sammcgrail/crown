@@ -207,6 +207,7 @@ function resolveTurn() {
   for (var ki = 0; ki < keys.length; ki++) {
     var parts = keys[ki].split(",");
     var tx = parseInt(parts[0]), ty = parseInt(parts[1]);
+    if (isNaN(tx) || isNaN(ty) || !game.grid[ty]) continue;
     var bids = turnBids[keys[ki]];
     bids.sort(function(a, b) { return b.amount - a.amount; });
 
