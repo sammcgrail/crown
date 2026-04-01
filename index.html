@@ -127,6 +127,44 @@ h1 {
   border-radius: 6px;
   box-shadow: 0 2px 12px rgba(0,0,0,0.4);
 }
+.grid-coords-top, .grid-coords-bottom {
+  display: grid;
+  grid-template-columns: repeat(11, 42px);
+  gap: 2px;
+  padding: 0 2px;
+  justify-content: center;
+}
+.grid-coords-top { margin-bottom: 2px; }
+.grid-coords-bottom { margin-top: 2px; }
+.coord-label {
+  text-align: center;
+  font-size: 9px;
+  font-family: monospace;
+  color: #5a5040;
+  line-height: 14px;
+}
+.grid-with-rows {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+}
+.grid-coords-left, .grid-coords-right {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 0;
+  justify-content: center;
+}
+.grid-coords-left { margin-right: 4px; }
+.grid-coords-right { margin-left: 4px; }
+.coord-label-row {
+  height: 42px;
+  display: flex;
+  align-items: center;
+  font-size: 9px;
+  font-family: monospace;
+  color: #5a5040;
+}
 .cell {
   width: 42px;
   height: 42px;
@@ -688,19 +726,53 @@ function apiBase() {
 }
 
 function initGrid() {
-  var grid = document.getElementById("grid");
-  grid.innerHTML = "";
+  var wrapper = document.querySelector(".grid-wrapper");
+  wrapper.innerHTML = "";
+
+  // Top coordinate labels
+  var topCoords = document.createElement("div");
+  topCoords.className = "grid-coords-top";
+  for (var x = 0; x < GRID_SIZE; x++) {
+    var label = document.createElement("div");
+    label.className = "coord-label";
+    label.textContent = x;
+    topCoords.appendChild(label);
+  }
+  wrapper.appendChild(topCoords);
+
+  // Row with left labels + grid + right labels
+  var rowWrap = document.createElement("div");
+  rowWrap.className = "grid-with-rows";
+
+  // Left coordinate labels
+  var leftCoords = document.createElement("div");
+  leftCoords.className = "grid-coords-left";
   for (var y = 0; y < GRID_SIZE; y++) {
-    for (var x = 0; x < GRID_SIZE; x++) {
+    var label2 = document.createElement("div");
+    label2.className = "coord-label-row";
+    label2.textContent = y;
+    leftCoords.appendChild(label2);
+  }
+  rowWrap.appendChild(leftCoords);
+
+  // Grid
+  var grid = document.createElement("div");
+  grid.className = "grid";
+  grid.id = "grid";
+  for (var y2 = 0; y2 < GRID_SIZE; y2++) {
+    for (var x2 = 0; x2 < GRID_SIZE; x2++) {
       var cell = document.createElement("div");
       cell.className = "cell";
-      cell.dataset.x = x;
-      cell.dataset.y = y;
-      if (x === 5 && y === 5) cell.classList.add("crown");
+      cell.dataset.x = x2;
+      cell.dataset.y = y2;
+      if (x2 === 5 && y2 === 5) cell.classList.add("crown");
       cell.addEventListener("click", function() { cellClicked(this); });
       grid.appendChild(cell);
     }
   }
+  rowWrap.appendChild(grid);
+
+  wrapper.appendChild(rowWrap);
 }
 
 function renderGrid(gridData) {
