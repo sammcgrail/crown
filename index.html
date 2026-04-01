@@ -241,11 +241,13 @@ h1 {
   .balance-card { padding: 6px; }
   .balance-card .bal-name { font-size: 0.85em; }
   .balance-card .bal-stats { font-size: 0.75em; }
-  .event-log { max-height: 200px; font-size: 0.78em; overflow-y: auto; }
-  .player-balance { max-height: 180px; overflow-y: auto; }
-  .history-panel { max-height: 200px; overflow-y: auto; }
-  .panel { max-height: 200px; overflow-y: auto; }
-  .leaderboard { max-height: 150px; overflow-y: auto; }
+  /* Fixed heights — panels never resize when content changes */
+  .event-log { height: 180px; font-size: 0.78em; overflow-y: auto; }
+  .player-balance { height: 160px; overflow-y: auto; }
+  .history-panel { height: 160px; overflow-y: auto; }
+  .panel { height: 140px; overflow-y: auto; }
+  .leaderboard { height: 120px; overflow-y: auto; }
+  .past-games { height: 180px; overflow-y: auto; }
   .col-left, .col-center, .col-right { min-height: 0; }
   .replay-section { margin-top: 12px; }
   .replay-controls { padding: 10px; }
@@ -257,7 +259,7 @@ h1 {
   .replay-progress { height: 8px; margin-top: 4px; }
   .replay-bids { font-size: 0.78em; margin-top: 6px; }
   .past-games { padding: 10px; }
-  .past-games h2 { font-size: 0.9em; }
+  .past-games h2 { font-size: 0.9em; margin-bottom: 6px; }
   .past-game-row { padding: 8px; font-size: 0.8em; flex-wrap: wrap; gap: 4px; }
   .past-game-meta { width: 100%; }
   .status-bar { font-size: 0.95em; padding: 8px; }
