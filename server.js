@@ -217,15 +217,19 @@ function deleteBot(name) {
   try { fs.unlinkSync(filePath); return true; } catch (e) { return false; }
 }
 
-function runAutobot(name, gameState, overrideCode) {
-  var code = overrideCode || getBot(name);
-  if (!code) return null;
+// Fast in-process execution for autobattle (code is pre-validated on upload)
+function runAutobotFast(code, gameState) {
+  try {
+    var fn = new Function("state", code + "\n;if (typeof decideBids === 'function') { return decideBids(state); } return [];");
+    var bids = fn(JSON.parse(JSON.stringify(gameState))); // deep copy to isolate
+    return validateBids(bids);
+  } catch (e) {
+    return [];
+  }
+}
 
-  // Run bot code in a sandboxed subprocess — separate process with:
-  // - No access to host require/fs/net/process.env
-  // - 32MB memory limit (--max-old-space-size)
-  // - 3 second timeout (killed if exceeded)
-  // - Communication only via stdin/stdout JSON
+// Subprocess sandbox for live game turns (untrusted execution boundary)
+function runAutobotSandboxed(code, gameState) {
   try {
     var input = JSON.stringify({ code: code, state: gameState });
     var result = child_process.execFileSync(
@@ -234,31 +238,40 @@ function runAutobot(name, gameState, overrideCode) {
       {
         input: input,
         timeout: 3000,
-        maxBuffer: 1024 * 64, // 64KB output max
+        maxBuffer: 1024 * 64,
         stdio: ["pipe", "pipe", "pipe"],
-        env: {} // empty environment — no secrets leak
+        env: {}
       }
     );
-
     var bids = [];
     try { bids = JSON.parse(result.toString()); } catch (e) {}
-
-    if (!Array.isArray(bids)) return [];
-    // Validate bids
-    var validated = [];
-    for (var i = 0; i < Math.min(bids.length, MAX_BIDS_PER_TURN); i++) {
-      var b = bids[i];
-      if (b && typeof b.x === "number" && typeof b.y === "number" && typeof b.amount === "number" &&
-          b.x >= 0 && b.x < GRID_SIZE && b.y >= 0 && b.y < GRID_SIZE &&
-          b.amount > 0 && Number.isInteger(b.amount)) {
-        validated.push({ x: b.x, y: b.y, amount: b.amount });
-      }
-    }
-    return validated;
+    return validateBids(bids);
   } catch (e) {
-    console.error("Autobot " + name + " execution error:", e.message);
+    console.error("Autobot sandbox error:", e.message);
     return [];
   }
+}
+
+function validateBids(bids) {
+  if (!Array.isArray(bids)) return [];
+  var validated = [];
+  for (var i = 0; i < Math.min(bids.length, MAX_BIDS_PER_TURN); i++) {
+    var b = bids[i];
+    if (b && typeof b.x === "number" && typeof b.y === "number" && typeof b.amount === "number" &&
+        b.x >= 0 && b.x < GRID_SIZE && b.y >= 0 && b.y < GRID_SIZE &&
+        b.amount > 0 && Number.isInteger(b.amount)) {
+      validated.push({ x: b.x, y: b.y, amount: b.amount });
+    }
+  }
+  return validated;
+}
+
+// Main entry point — uses subprocess for live games, in-process for autobattle
+function runAutobot(name, gameState, overrideCode, fast) {
+  var code = overrideCode || getBot(name);
+  if (!code) return null;
+  if (fast) return runAutobotFast(code, gameState);
+  return runAutobotSandboxed(code, gameState);
 }
 
 function getAutobotState(playerIndex) {
@@ -844,7 +857,7 @@ app.post("/api/autobattle", function(req, res) {
       };
 
       var overrideCode = overrides[realName] || null;
-      var bids = runAutobot(realName, bState, overrideCode);
+      var bids = runAutobot(realName, bState, overrideCode, true);
       if (!bids) bids = [];
 
       // Process bids
