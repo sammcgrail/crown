@@ -5,6 +5,8 @@ services:
       - "20005:20005"
     volumes:
       - ./data:/app/data
+    env_file:
+      - .env
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:20005/api/state"]

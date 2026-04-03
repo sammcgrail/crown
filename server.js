@@ -736,6 +736,10 @@ app.get("/api/bot/:name/version/:ver", function(req, res) {
 });
 
 app.post("/api/bot/:name/revert/:ver", function(req, res) {
+  if (BOT_UPLOAD_PASSWORD) {
+    var pw = req.body.password || req.headers["x-upload-password"];
+    if (pw !== BOT_UPLOAD_PASSWORD) return res.status(403).json({ error: "Invalid upload password" });
+  }
   var code = getBotVersion(req.params.name, req.params.ver);
   if (!code) return res.status(404).json({ error: "Version not found" });
   saveBot(req.params.name, code);
@@ -748,18 +752,27 @@ app.get("/api/bot/:name", function(req, res) {
   res.json({ name: req.params.name, code: code });
 });
 
+var BOT_UPLOAD_PASSWORD = process.env.BOT_UPLOAD_PASSWORD || null;
+
 app.post("/api/bot/upload", function(req, res) {
+  // Password protection
+  if (BOT_UPLOAD_PASSWORD) {
+    var pw = req.body.password || req.headers["x-upload-password"];
+    if (pw !== BOT_UPLOAD_PASSWORD) {
+      return res.status(403).json({ error: "Invalid upload password" });
+    }
+  }
   var name = req.body.name;
   var code = req.body.code;
   if (!name || !code) return res.status(400).json({ error: "name and code are required" });
   if (!/^[a-zA-Z0-9_-]+$/.test(name)) return res.status(400).json({ error: "Invalid bot name (alphanumeric, hyphens, underscores only)" });
   if (code.length > 50000) return res.status(400).json({ error: "Bot code too large (max 50KB)" });
 
-  // Validate the code can at least parse (syntax check via subprocess)
+  // Validate the code can at least parse (syntax check in sandboxed subprocess)
   try {
     child_process.execFileSync(
       process.execPath,
-      ["-e", "new Function(" + JSON.stringify(code) + ")"],
+      ["--experimental-permission", "--allow-fs-read=/dev/null", "-e", "new Function(" + JSON.stringify(code) + ")"],
       { timeout: 2000, stdio: ["pipe", "pipe", "pipe"], env: {} }
     );
   } catch (e) {
